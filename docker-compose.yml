@@ -4,6 +4,8 @@ services:
   collosfiscal:
     build: .
     container_name: collosfiscal_app
+    env_file:
+      - .env
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
