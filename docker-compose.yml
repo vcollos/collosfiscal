@@ -13,7 +13,7 @@ services:
       DEFAULT_CFOP: 1102
       DEFAULT_NATUREZA_OPERACAO: 1
       COLLOSFISCAL_VERSION: 1.0.0
-      DB_HOST: postgres
+      DB_HOST: localhost
       DB_PORT: 5432
       DB_NAME: collos
       DB_USER: collos
