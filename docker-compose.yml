@@ -19,5 +19,7 @@ services:
       DB_USER: collos
       DB_PASS: soeusei22
     ports:
-      - "5000:8080"
+      - "5000:8501"
     restart: always
+
+    

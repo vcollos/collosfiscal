@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expõe a porta usada internamente pela aplicação
-EXPOSE 8080
+EXPOSE 8501
 
 # Comando para iniciar a aplicação
-CMD ["python", "main.py"]
+CMD ["streamlit", "run", "main.py"]
