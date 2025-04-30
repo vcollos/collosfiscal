@@ -4,9 +4,15 @@ services:
   collosfiscal:
     build: .
     container_name: collosfiscal_app
-    env_file:
-      - .env
     environment:
+      APP_ENV: development
+      DEBUG: "True"
+      UPLOAD_DIR: ./uploads
+      TEMP_DIR: ./tmp
+      LOG_DIR: ./logs
+      DEFAULT_CFOP: 1102
+      DEFAULT_NATUREZA_OPERACAO: 1
+      COLLOSFISCAL_VERSION: 1.0.0
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: collosfiscal
