@@ -1,9 +1,17 @@
+import os
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, select, insert, update
+from dotenv import load_dotenv
 
-# Conexão principal
-DATABASE_URL = "postgresql+psycopg2://vitorcollos:soeusei22@localhost:5432/collosfiscal"
+load_dotenv()  # Carrega variáveis do arquivo .env se existir
 
-engine = create_engine(DATABASE_URL)
+# Conexão principal via variáveis de ambiente
+DB_USER = os.getenv("DB_USER", "vitoros")
+DB_PASS = os.getenv("DB_PASS", "soeusei22")
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME", "collosfiscal")
+
+engine = create_engine(f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 metadata = MetaData()
 metadata.reflect(bind=engine)
 

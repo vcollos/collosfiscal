@@ -15,7 +15,7 @@ services:
       COLLOSFISCAL_VERSION: 1.0.0
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: collosfiscal
+      DB_NAME: collos
       DB_USER: collos
       DB_PASS: soeusei22
     ports:
