@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  collosfiscal:
+    build: .
+    container_name: collosfiscal_app
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: collosfiscal
+      DB_USER: collos
+      DB_PASS: soeusei22
+    ports:
+      - "5000:8080"
+    restart: always
