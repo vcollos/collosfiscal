@@ -4,23 +4,54 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Carrega variáveis do arquivo .env se existir
 
-# Conexão principal via variáveis de ambiente
-DB_USER = os.getenv("DB_USER", "vitoros")
+DB_USER = os.getenv("DB_USER", "collos")
 DB_PASS = os.getenv("DB_PASS", "soeusei22")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "collosfiscal")
 
 engine = create_engine(f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+
 metadata = MetaData()
-metadata.reflect(bind=engine)
 
-# Reflete as tabelas novas
-origem_destino_cfop = Table('origem_destino_cfop', metadata, autoload_with=engine)
-tipo_operacao_cfop = Table('tipo_operacao_cfop', metadata, autoload_with=engine)
-finalidade_cfop = Table('finalidade_cfop', metadata, autoload_with=engine)
+# Definição explícita das tabelas
 
-# Tabela antiga para salvar tipo operação de fornecedores
+empresas = Table(
+    "empresas",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("cnpj", String(14), nullable=False, unique=True),
+    Column("nome", String(255), nullable=False),
+    Column("razao_social", String(255), nullable=False),
+    extend_existing=True
+)
+
+origem_destino_cfop = Table(
+    "origem_destino_cfop",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("origem", String, nullable=False),
+    Column("destino", String, nullable=False),
+    Column("cfop", String, nullable=False),
+    extend_existing=True
+)
+
+tipo_operacao_cfop = Table(
+    "tipo_operacao_cfop",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("descricao", String, nullable=False),
+    extend_existing=True
+)
+
+finalidade_cfop = Table(
+    "finalidade_cfop",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("descricao", String, nullable=False),
+    extend_existing=True
+)
+
 emissores_operacoes = Table(
     "emissores_operacoes",
     metadata,
@@ -29,12 +60,11 @@ emissores_operacoes = Table(
     extend_existing=True
 )
 
-# Nova tabela para preferências por empresa e fornecedor
 preferencias_fornecedor_empresa = Table(
     "preferencias_fornecedor_empresa",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("empresa_id", String, nullable=False),
+    Column("empresa_id", Integer, nullable=False),
     Column("cnpj_fornecedor", String(14), nullable=False),
     Column("tipo_operacao", String(255)),
     Column("cfop", String(10)),
@@ -46,7 +76,6 @@ preferencias_fornecedor_empresa = Table(
     extend_existing=True
 )
 
-# Garante criação das tabelas
 metadata.create_all(engine)
 
 # 📋 Funções para buscar interpretações
@@ -101,8 +130,9 @@ def salvar_tipo_operacao_emissor(cnpj, tipo_operacao):
 
 def buscar_preferencia_empresa_fornecedor(empresa_id, cnpj_fornecedor):
     with engine.connect() as conn:
+        # Cast empresa_id to string to match database column type
         stmt = select(preferencias_fornecedor_empresa).where(
-            (preferencias_fornecedor_empresa.c.empresa_id == empresa_id) &
+            (preferencias_fornecedor_empresa.c.empresa_id.cast(String) == str(empresa_id)) &
             (preferencias_fornecedor_empresa.c.cnpj_fornecedor == cnpj_fornecedor)
         )
         result = conn.execute(stmt).fetchone()
@@ -116,7 +146,7 @@ def salvar_preferencia_empresa_fornecedor(empresa_id, cnpj_fornecedor, tipo_oper
         pref = buscar_preferencia_empresa_fornecedor(empresa_id, cnpj_fornecedor)
         if pref:
             stmt = update(preferencias_fornecedor_empresa).where(
-                (preferencias_fornecedor_empresa.c.empresa_id == empresa_id) &
+                (preferencias_fornecedor_empresa.c.empresa_id.cast(String) == str(empresa_id)) &
                 (preferencias_fornecedor_empresa.c.cnpj_fornecedor == cnpj_fornecedor)
             ).values(
                 tipo_operacao=tipo_operacao,

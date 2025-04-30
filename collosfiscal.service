@@ -1,0 +1,19 @@
+[Unit]
+Description=CollosFiscal Streamlit App
+After=network.target
+
+[Service]
+User=collos
+WorkingDirectory=/home/collos/apps/collosfiscal
+ExecStart=/home/collos/apps/collosfiscal/venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+Restart=always
+RestartSec=5
+Environment=DB_USER=collos
+Environment=DB_PASS=soeusei22
+Environment=DB_NAME=collosfiscal
+Environment=DB_HOST=localhost
+Environment=DB_PORT=5432
+Environment=APP_ENV=production
+
+[Install]
+WantedBy=multi-user.target
