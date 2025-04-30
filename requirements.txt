@@ -1,0 +1,5 @@
+streamlit
+pandas
+lxml
+sqlalchemy
+psycopg2-binary
