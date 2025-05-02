@@ -105,7 +105,8 @@ streamlit run app.py
 4. **Seleção em massa:** Selecione todas as notas filtradas para edição em lote.
 5. **Edição:** Edite o tipo de operação individualmente (dropdown com códigos CFOP) ou em massa (seleção + aplicar).
 6. **Salvar no banco:** Salve as preferências de tipo de operação por CNPJ, armazenando o código CFOP.
-7. **Exportação:** Exporte XMLs editados em arquivo ZIP.
+7. **Exportação de XMLs:** Exporte XMLs editados em arquivo ZIP contendo apenas as notas cujo tipo de operação seja estritamente "1102", "2102" ou "5910". Notas com outros CFOPs são excluídas do ZIP, mesmo que selecionadas.
+8. **Exportação de CSV:** Gere um arquivo CSV com os dados selecionados, contendo colunas específicas (Débito, Crédito, Histórico, Data, Valor e Complemento) formatadas conforme padrão definido.
 
 ---
 
