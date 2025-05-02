@@ -22,10 +22,8 @@ def alterar_cfops_e_gerar_zip(arquivos_dict, chaves_para_alterar, novo_cfop):
 
                 chave = infNFe.get("Id", "").replace("NFe", "")
                 if chave not in chaves_para_alterar:
-                    zipf.writestr(nome_arquivo, conteudo)
                     continue
 
-                # Altera todos os CFOPs
                 for cfop in root.findall(".//{http://www.portalfiscal.inf.br/nfe}CFOP"):
                     cfop.text = novo_cfop
 

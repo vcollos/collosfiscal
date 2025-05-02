@@ -6,6 +6,7 @@ import zipfile
 
 def alterar_natureza_e_gerar_zip(arquivos_dict, chaves_para_alterar, nova_natureza):
     zip_buffer = io.BytesIO()
+    allowed_tipos = {"1102", "2102", "5910"}
 
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for nome_arquivo, conteudo in arquivos_dict.items():
@@ -20,6 +21,10 @@ def alterar_natureza_e_gerar_zip(arquivos_dict, chaves_para_alterar, nova_nature
                 chave = infNfse.findtext("Numero", default="")
                 if chave not in chaves_para_alterar:
                     zipf.writestr(nome_arquivo, conteudo)
+                    continue
+
+                tipo_operacao = root.findtext(".//tipo_operacao")
+                if tipo_operacao not in allowed_tipos:
                     continue
 
                 natureza = root.find(".//NaturezaOperacao")

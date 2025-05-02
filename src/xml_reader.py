@@ -52,7 +52,8 @@ def extrair_dados_xmls(arquivos_xml):
                 "cfop_atual": cfop_atual,
                 "credito_icms": float(credito_icms),
                 "data_nota": data_emissao,
-                "complemento": complemento
+                "complemento": complemento,
+                "nNF": numero_nota
             })
 
         except Exception as e:

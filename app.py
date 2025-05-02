@@ -190,12 +190,13 @@ if uploaded_files:
             "Selecionar": st.column_config.CheckboxColumn(
                 "Selecionar",
                 help="Selecione as linhas para edição em massa",
-                default=False
+                default=False,
+                width="small",
             ),
             "tipo_operacao": st.column_config.SelectboxColumn(
                 "Tipo Operação",
                 help="Tipo de operação (CFOP code)",
-                width="medium",
+                width="small",
                 options=[
                     "",
                     "1102",
@@ -217,7 +218,7 @@ if uploaded_files:
             "complemento": st.column_config.TextColumn(
                 "Complemento",
                 help="CNPJ + Razão Social + Número da Nota",
-                width="large",
+                width="medium",
                 disabled=False,
             ),
             "debito": st.column_config.TextColumn(
@@ -273,12 +274,30 @@ if uploaded_files:
     
     with col1:
         novo_tipo = st.selectbox("🚀 Tipo de operação para aplicar nos selecionados:", [
-            "Revenda dentro do estado",
-            "Revenda fora do estado",
-            "Consumo dentro do estado",
-            "Consumo fora do estado",
-            "Serviço dentro do estado",
-            "Serviço fora do estado",
+            "Consumo - Dentro do Estado",
+            "Consumo - Fora do Estado",
+            "Revenda - Dentro do Estado",
+            "Revenda - Fora do Estado",
+            "Ativo Imobilizado - Dentro do Estado",
+            "Ativo Imobilizado - Fora do Estado",
+            "Serviço - Dentro do Estado",
+            "Serviço - Fora do Estado",
+            "Transferência - Dentro do Estado",
+            "Transferência - Fora do Estado",
+            "Bonificação / Brinde - Dentro do Estado",
+            "Bonificação / Brinde - Fora do Estado",
+            "Doação - Dentro do Estado",
+            "Doação - Fora do Estado",
+            "Demonstração - Dentro do Estado",
+            "Demonstração - Fora do Estado",
+            "Remessa para Conserto - Dentro do Estado",
+            "Remessa para Conserto - Fora do Estado",
+            "Retorno de Conserto - Dentro do Estado",
+            "Retorno de Conserto - Fora do Estado",
+            "Remessa para Industrialização - Dentro do Estado",
+            "Remessa para Industrialização - Fora do Estado",
+            "Retorno de Industrialização - Dentro do Estado",
+            "Retorno de Industrialização - Fora do Estado",
         ])
     with col2:
         novo_debito = st.text_input("Débito (13 dígitos)", max_chars=13)
@@ -355,35 +374,102 @@ if uploaded_files:
     # Gerar e exportar ZIP com XMLs alterados
     if st.button("📦 Gerar ZIP com XMLs alterados"):
         from src.xml_editor import alterar_cfops_e_gerar_zip
-        chaves_alteradas = st.session_state.df_geral[st.session_state.df_geral["tipo_operacao"] != ""]["chave"].tolist()
-        if not chaves_alteradas:
-            st.warning("Nenhuma nota com tipo de operação alterado para gerar XML.")
+        allowed_cfops = {"1102", "2102", "5910"}
+
+        # Pega todas as chaves onde tipo_operacao está entre os CFOPs permitidos
+        chaves_selecionadas = st.session_state.df_geral[
+            st.session_state.df_geral["tipo_operacao"].isin(allowed_cfops)
+        ]["chave"].tolist()
+
+        if not chaves_selecionadas:
+            st.warning("Nenhuma nota com CFOP permitido (1102, 2102, 5910) para gerar XML.")
         else:
-            zip_buffer = alterar_cfops_e_gerar_zip(st.session_state.arquivos_dict, chaves_alteradas, novo_cfop=st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chaves_alteradas[0], "tipo_operacao"].values[0])
+            # Usa o tipo_operacao da primeira nota como novo_cfop
+            novo_cfop = st.session_state.df_geral.loc[
+                st.session_state.df_geral["chave"] == chaves_selecionadas[0],
+                "tipo_operacao"
+            ].values[0]
+            zip_buffer = alterar_cfops_e_gerar_zip(
+                st.session_state.arquivos_dict,
+                chaves_selecionadas,
+                novo_cfop=novo_cfop
+            )
             st.download_button(
                 label="⬇️ Baixar ZIP com XMLs alterados",
                 data=zip_buffer,
                 file_name="notas_alteradas.zip",
                 mime="application/zip"
             )
-
     # Gerar e exportar CSV com dados selecionados
     if st.button("📄 Gerar CSV com dados selecionados"):
-        import csv
         import tempfile
+        from datetime import datetime
 
-        csv_columns = ["debito", "credito", "historico", "data_nota", "valor_total", "complemento"]
-        df_csv = st.session_state.df_geral[csv_columns].copy()
+        # Definir os cabeçalhos conforme solicitado
+        csv_headers = ["DEBITO", "CREDITO", "HISTORICO", "DATA", "VALOR", "COMPLEMENTO"]
 
-        # Criar arquivo CSV temporário
+        # Filtrar e formatar os dados conforme especificado
+        df = st.session_state.df_geral.copy()
+
+        # Filtrar colunas necessárias e renomear para os cabeçalhos
+        df_csv = df[["debito", "credito", "historico", "data_nota", "valor_total"]].copy()
+        df_csv.columns = csv_headers[:-1]  # Exclui COMPLEMENTO para renomear
+
+        # DATA: formatar para DD/MM/AAAA
+        def format_date(date_str):
+            try:
+                dt = pd.to_datetime(date_str, dayfirst=True, errors='coerce')
+                if pd.isna(dt):
+                    return ""
+                return dt.strftime("%d/%m/%Y")
+            except Exception:
+                return ""
+        df_csv["DATA"] = df_csv["DATA"].apply(format_date)
+
+        # VALOR: numérico com 2 casas decimais e separador decimal vírgula
+        df_csv["VALOR"] = df_csv["VALOR"].apply(lambda x: f"{float(x):.2f}".replace(".", ",") if pd.notnull(x) else "0,00")
+
+        # DEBITO, CREDITO, HISTORICO: manter como string sem preenchimento de zeros
+        df_csv["DEBITO"] = df_csv["DEBITO"].astype(str)
+        df_csv["CREDITO"] = df_csv["CREDITO"].astype(str)
+        df_csv["HISTORICO"] = df_csv["HISTORICO"].astype(str)
+
+        # COMPLEMENTO: concatenar "CNPJ - FORNECEDOR - NUMERO_NOTA" como string única
+        def format_complemento(row):
+            cnpj = row.get("cnpj_emissor", "")
+            fornecedor = row.get("fornecedor", "")
+            numero_nota = row.get("nNF", "") or row.get("nnotafiscal", "")
+            parts = [cnpj, fornecedor, numero_nota]
+            return " - ".join([p for p in parts if p])
+
+        df_csv["COMPLEMENTO"] = df.apply(format_complemento, axis=1)
+
+        # Gerar nome do arquivo com "YYYY/MM" + Nome Fantasia + ".csv"
+        nome_fantasia = ""
+        if st.session_state.empresa_selecionada:
+            from src.db import engine, Table, MetaData
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            empresas_table = Table('empresas', metadata, autoload_with=engine)
+            with engine.connect() as conn:
+                result = conn.execute(empresas_table.select().where(empresas_table.c.id == st.session_state.empresa_selecionada))
+                empresa = result.fetchone()
+                if empresa:
+                    nome_fantasia = empresa.nome or empresa.razao_social or "empresa"
+
+        now = datetime.now()
+        prefix = now.strftime("%Y/%m")
+        filename = f"{prefix}_{nome_fantasia}.csv"
+
+        # Criar arquivo CSV temporário com separador ";"
         with tempfile.NamedTemporaryFile(mode="w+", delete=False, newline='', suffix=".csv") as tmpfile:
-            df_csv.to_csv(tmpfile.name, index=False)
+            df_csv.to_csv(tmpfile.name, index=False, sep=";")
             tmpfile.seek(0)
             csv_data = tmpfile.read()
 
         st.download_button(
             label="⬇️ Baixar CSV",
             data=csv_data,
-            file_name="dados_notas.csv",
+            file_name=filename,
             mime="text/csv"
         )
