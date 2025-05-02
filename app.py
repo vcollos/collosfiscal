@@ -83,6 +83,10 @@ if st.session_state.empresa_selecionada is None:
         st.stop()
 
 # Upload de XMLs
+if st.button("🔄 Recarregar dados"):
+    st.session_state.df_geral = None
+    rerun()
+
 uploaded_files = st.file_uploader("📂 Envie os arquivos XML das NF-es e NFS-es", type=["xml"], accept_multiple_files=True)
 
 if uploaded_files:
@@ -104,6 +108,8 @@ if uploaded_files:
         df_nfse, arquivos_nfse = extrair_dados_nfses_xmls(files_copy_2)
 
         st.session_state.df_geral = pd.concat([df_nfe, df_nfse], ignore_index=True)  # Atualizando df_geral no session state
+        # Criar coluna 'chave' única para identificar cada linha
+        st.session_state.df_geral["chave"] = st.session_state.df_geral.index.astype(str)
         arquivos_dict = {**arquivos_nfe, **arquivos_nfse}
         st.session_state.arquivos_dict = arquivos_dict  # Salva no session state
 
@@ -180,10 +186,21 @@ if uploaded_files:
             if col not in df_filtrado.columns:
                 df_filtrado[col] = ""
     
-    # Adiciona coluna de seleção
+    # Adiciona coluna de seleção com valor do checkbox selecionar_todos para todas as linhas
     df_filtrado.insert(0, "Selecionar", st.session_state.selecionar_todos)
     
-    # Exibe o dataframe com opção de editar a coluna tipo_operação e novas colunas
+    # Lista de códigos CFOP para seleção direta
+    CFOP_CODES = [
+        "1102",  # Consumo - Dentro do Estado
+        "2102",  # Consumo - Fora do Estado
+        "1556",  # Revenda - Dentro do Estado
+        "2556",  # Revenda - Fora do Estado
+        "1126",  # Ativo Imobilizado - Dentro do Estado
+        "2126",  # Ativo Imobilizado - Fora do Estado
+        "1551",  # Serviço - Dentro do Estado
+        "2551",  # Serviço - Fora do Estado
+    ]
+
     edited_df = st.data_editor(
         df_filtrado,
         column_config={
@@ -197,17 +214,7 @@ if uploaded_files:
                 "Tipo Operação",
                 help="Tipo de operação (CFOP code)",
                 width="small",
-                options=[
-                    "",
-                    "1102",
-                    "2102",
-                    "1556",
-                    "2556",
-                    "1126",
-                    "2126",
-                    "1551",
-                    "2551",
-                ],
+                options=[""] + CFOP_CODES,
             ),
             "data_nota": st.column_config.TextColumn(
                 "Data da Nota",
@@ -249,18 +256,22 @@ if uploaded_files:
     
     # Obter linhas selecionadas
     selected_rows = edited_df[edited_df["Selecionar"] == True]
-    
-    # Atualiza o dataframe original com as edições individuais feitas pelo usuário
+
+    # Atualiza a lista de chaves selecionadas no session state
+    st.session_state.selected_rows = selected_rows["chave"].tolist()
+
+    # Atualiza o dataframe original com as edições feitas pelo usuário
     for idx, row in edited_df.iterrows():
         chave = row["chave"]
-        tipo_operacao = row["tipo_operacao"]
+        tipo_operacao_codigo = row["tipo_operacao"]  # já é o código diretamente
         data_nota = row.get("data_nota", "")
         complemento = row.get("complemento", "")
         debito = row.get("debito", "")
         credito = row.get("credito", "")
         historico = row.get("historico", "")
-        # Atualiza todas as colunas editáveis, mesmo que tipo_operacao esteja vazio
-        st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "tipo_operacao"] = tipo_operacao
+        
+        # Grava no df_geral sempre o código diretamente
+        st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "tipo_operacao"] = tipo_operacao_codigo
         st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "data_nota"] = data_nota
         st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "complemento"] = complemento
         st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "debito"] = debito
@@ -274,30 +285,30 @@ if uploaded_files:
     
     with col1:
         novo_tipo = st.selectbox("🚀 Tipo de operação para aplicar nos selecionados:", [
-            "Consumo - Dentro do Estado",
-            "Consumo - Fora do Estado",
-            "Revenda - Dentro do Estado",
-            "Revenda - Fora do Estado",
-            "Ativo Imobilizado - Dentro do Estado",
-            "Ativo Imobilizado - Fora do Estado",
-            "Serviço - Dentro do Estado",
-            "Serviço - Fora do Estado",
-            "Transferência - Dentro do Estado",
-            "Transferência - Fora do Estado",
-            "Bonificação / Brinde - Dentro do Estado",
-            "Bonificação / Brinde - Fora do Estado",
-            "Doação - Dentro do Estado",
-            "Doação - Fora do Estado",
-            "Demonstração - Dentro do Estado",
-            "Demonstração - Fora do Estado",
-            "Remessa para Conserto - Dentro do Estado",
-            "Remessa para Conserto - Fora do Estado",
-            "Retorno de Conserto - Dentro do Estado",
-            "Retorno de Conserto - Fora do Estado",
-            "Remessa para Industrialização - Dentro do Estado",
-            "Remessa para Industrialização - Fora do Estado",
-            "Retorno de Industrialização - Dentro do Estado",
-            "Retorno de Industrialização - Fora do Estado",
+            "1102",  # Consumo - Dentro do Estado
+            "2102",  # Consumo - Fora do Estado
+            "1556",  # Revenda - Dentro do Estado
+            "2556",  # Revenda - Fora do Estado
+            "1126",  # Ativo Imobilizado - Dentro do Estado
+            "2126",  # Ativo Imobilizado - Fora do Estado
+            "1551",  # Serviço - Dentro do Estado
+            "2551",  # Serviço - Fora do Estado
+            "5152",  # Transferência - Dentro do Estado
+            "6152",  # Transferência - Fora do Estado
+            "5910",  # Bonificação / Brinde - Dentro do Estado
+            "6910",  # Bonificação / Brinde - Fora do Estado
+            "5915",  # Doação - Dentro do Estado
+            "6915",  # Doação - Fora do Estado
+            "5920",  # Demonstração - Dentro do Estado
+            "6920",  # Demonstração - Fora do Estado
+            "5931",  # Remessa para Conserto - Dentro do Estado
+            "6931",  # Remessa para Conserto - seFora do Estado
+            "5932",  # Retorno de Conserto - Dentro do Estado
+            "6932",  # Retorno de Conserto - Fora do Estado
+            "5949",  # Remessa para Industrialização - Dentro do Estado
+            "6949",  # Remessa para Industrialização - Fora do Estado
+            "5951",  # Retorno de Industrialização - Dentro do Estado
+            "6951",  # Retorno de Industrialização - Fora do Estado
         ])
     with col2:
         novo_debito = st.text_input("Débito (13 dígitos)", max_chars=13)
@@ -311,17 +322,7 @@ if uploaded_files:
     if aplicar_btn:
         if st.session_state.df_geral is not None:
             if not selected_rows.empty:
-                from src.utils import CFOP_MAP
-                tipo_operacao_map = {
-                    "Revenda dentro do estado": "Revenda - Dentro do Estado",
-                    "Revenda fora do estado": "Revenda - Fora do Estado",
-                    "Consumo dentro do estado": "Consumo - Dentro do Estado",
-                    "Consumo fora do estado": "Consumo - Fora do Estado",
-                    "Serviço dentro do estado": "Serviço - Dentro do Estado",
-                    "Serviço fora do estado": "Serviço - Fora do Estado",
-                }
-                # Converte o texto selecionado para o código CFOP
-                cfop_code = CFOP_MAP.get(tipo_operacao_map.get(novo_tipo, ""), "")
+                cfop_code = novo_tipo  # já é o código diretamente
                 # Guarda as chaves das linhas selecionadas
                 chaves_selecionadas = selected_rows["chave"].tolist()
                 
@@ -329,7 +330,8 @@ if uploaded_files:
                 for chave in chaves_selecionadas:
                     idxs = st.session_state.df_geral.index[st.session_state.df_geral["chave"] == chave].tolist()
                     for idx in idxs:
-                        st.session_state.df_geral.at[idx, "tipo_operacao"] = cfop_code
+                        if cfop_code:
+                            st.session_state.df_geral.at[idx, "tipo_operacao"] = cfop_code
                         if novo_debito:
                             st.session_state.df_geral.at[idx, "debito"] = novo_debito
                         if novo_credito:
@@ -349,27 +351,31 @@ if uploaded_files:
     # Salvar tipos no banco
     if st.button("💾 Salvar tipos no Banco"):
         empresa_id = st.session_state.empresa_selecionada
-        for idx, row in st.session_state.df_geral.iterrows():
-            cnpj = row["cnpj_emissor"]
-            cfop_code = row["tipo_operacao"]
-            data_nota = row.get("data_nota", "")
-            complemento = row.get("complemento", "")
-            debito = row.get("debito", "")
-            credito = row.get("credito", "")
-            historico = row.get("historico", "")
-            if cnpj and cfop_code:
-                salvar_preferencia_empresa_fornecedor(
-                    empresa_id,
-                    cnpj,
-                    tipo_operacao=cfop_code,
-                    cfop=None,
-                    data_nota=data_nota,
-                    complemento=complemento,
-                    debito=debito,
-                    credito=credito,
-                    historico=historico
-                )
-        st.success("Preferências salvas no banco.")
+        if empresa_id is None:
+            st.error("Nenhuma empresa selecionada para salvar.")
+        else:
+            for idx, row in st.session_state.df_geral.iterrows():
+                cnpj = row["cnpj_emissor"]
+                cfop_code = row["tipo_operacao"]
+                data_nota = row.get("data_nota", "")
+                complemento = row.get("complemento", "")
+                debito = row.get("debito", "")
+                credito = row.get("credito", "")
+                historico = row.get("historico", "")
+                if cnpj and cfop_code:
+                    st.write(f"Salvando: empresa_id={empresa_id}, cnpj={cnpj}, tipo_operacao={cfop_code}, data_nota={data_nota}, complemento={complemento}")
+                    salvar_preferencia_empresa_fornecedor(
+                        empresa_id,
+                        cnpj,
+                        tipo_operacao=cfop_code,
+                        cfop=None,
+                        data_nota=data_nota,
+                        complemento=complemento,
+                        debito=debito,
+                        credito=credito,
+                        historico=historico
+                    )
+            st.success("Preferências salvas no banco.")
 
     # Gerar e exportar ZIP com XMLs alterados
     if st.button("📦 Gerar ZIP com XMLs alterados"):

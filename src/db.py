@@ -78,6 +78,8 @@ preferencias_fornecedor_empresa = Table(
 
 metadata.create_all(engine)
 
+metadata.create_all(engine)
+
 # 📋 Funções para buscar interpretações
 
 def buscar_origem_destino(digito):
