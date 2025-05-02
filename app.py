@@ -418,7 +418,7 @@ if uploaded_files:
         # DATA: formatar para DD/MM/AAAA
         def format_date(date_str):
             try:
-                dt = pd.to_datetime(date_str, dayfirst=True, errors='coerce')
+                dt = pd.to_datetime(date_str, errors='coerce')
                 if pd.isna(dt):
                     return ""
                 return dt.strftime("%d/%m/%Y")
