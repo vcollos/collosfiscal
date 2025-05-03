@@ -108,10 +108,10 @@ if uploaded_files:
         df_nfse, arquivos_nfse = extrair_dados_nfses_xmls(files_copy_2)
 
         st.session_state.df_geral = pd.concat([df_nfe, df_nfse], ignore_index=True)  # Atualizando df_geral no session state
-        # Criar coluna 'chave' única para identificar cada linha
-        st.session_state.df_geral["chave"] = st.session_state.df_geral.index.astype(str)
         arquivos_dict = {**arquivos_nfe, **arquivos_nfse}
         st.session_state.arquivos_dict = arquivos_dict  # Salva no session state
+        # Criar coluna 'chave' única para identificar cada linha com o nome do arquivo original
+        st.session_state.df_geral["chave"] = list(arquivos_dict.keys())
 
         # Garante que as colunas existam
         if "tipo_operacao" not in st.session_state.df_geral.columns:
@@ -378,9 +378,12 @@ if uploaded_files:
             st.success("Preferências salvas no banco.")
 
     # Gerar e exportar ZIP com XMLs alterados
-    if st.button("📦 Gerar ZIP com XMLs alterados"):
-        from src.xml_editor import alterar_cfops_e_gerar_zip
-        allowed_cfops = {"1102", "2102", "5910"}
+    def gerar_zip_com_xmls_alterados():
+        import io
+        import zipfile
+        from lxml import etree
+
+        allowed_cfops = {"1102", "2102", "1910", "2910", "1403", "2403", "1911"}
 
         # Pega todas as chaves onde tipo_operacao está entre os CFOPs permitidos
         chaves_selecionadas = st.session_state.df_geral[
@@ -388,18 +391,75 @@ if uploaded_files:
         ]["chave"].tolist()
 
         if not chaves_selecionadas:
-            st.warning("Nenhuma nota com CFOP permitido (1102, 2102, 5910) para gerar XML.")
-        else:
-            # Usa o tipo_operacao da primeira nota como novo_cfop
+            st.warning("Nenhuma nota com CFOP permitido para gerar XML.")
+            return None
+
+        arquivos_filtrados = {}
+        for chave in chaves_selecionadas:
+            # Pega o tipo_operacao para essa chave
             novo_cfop = st.session_state.df_geral.loc[
-                st.session_state.df_geral["chave"] == chaves_selecionadas[0],
+                st.session_state.df_geral["chave"] == chave,
                 "tipo_operacao"
             ].values[0]
-            zip_buffer = alterar_cfops_e_gerar_zip(
-                st.session_state.arquivos_dict,
-                chaves_selecionadas,
-                novo_cfop=novo_cfop
-            )
+            # Pega o conteúdo original do XML
+            conteudo_xml = st.session_state.arquivos_dict.get(chave)
+            if conteudo_xml:
+                arquivos_filtrados[chave] = (conteudo_xml, novo_cfop)
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zipf:
+            for nome_arquivo, (conteudo, cfop) in arquivos_filtrados.items():
+                try:
+                    tree = etree.parse(io.BytesIO(conteudo))
+                    root = tree.getroot()
+                    for elem_cfop in root.findall(".//{http://www.portalfiscal.inf.br/nfe}CFOP"):
+                        elem_cfop.text = cfop
+                    buffer = io.BytesIO()
+                    tree.write(buffer, encoding="utf-8", xml_declaration=True, pretty_print=False)
+                    zipf.writestr(nome_arquivo, buffer.getvalue())
+                except Exception as e:
+                    print(f"Erro ao processar {nome_arquivo}: {e}")
+                    continue
+        zip_buffer.seek(0)
+        return zip_buffer
+
+    if st.button("📦 Gerar ZIP com XMLs alterados"):
+        zip_buffer = gerar_zip_com_xmls_alterados()
+        if zip_buffer is None:
+            # Se não houver notas com CFOP permitido, tenta gerar a partir do df_geral sem alterações
+            allowed_cfops = {"1102", "2102", "1910", "2910", "1403", "2403", "1911"}
+            chaves_selecionadas = st.session_state.df_geral[
+                st.session_state.df_geral["tipo_operacao"].isin(allowed_cfops)
+            ]["chave"].tolist()
+            arquivos_filtrados = {}
+            for chave in chaves_selecionadas:
+                conteudo_xml = st.session_state.arquivos_dict.get(chave + ".xml")
+                if conteudo_xml is None:
+                    conteudo_xml = st.session_state.arquivos_dict.get(chave)
+                if conteudo_xml:
+                    arquivos_filtrados[chave + ".xml"] = (conteudo_xml, None)
+
+            if not arquivos_filtrados:
+                st.warning("Nenhuma nota válida para gerar ZIP.")
+            else:
+                import io
+                import zipfile
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w") as zipf:
+                    for nome_arquivo, (conteudo, _) in arquivos_filtrados.items():
+                        try:
+                            zipf.writestr(nome_arquivo, conteudo)
+                        except Exception as e:
+                            print(f"Erro ao adicionar {nome_arquivo} ao ZIP: {e}")
+                            continue
+                zip_buffer.seek(0)
+                st.download_button(
+                    label="⬇️ Baixar ZIP com XMLs originais",
+                    data=zip_buffer,
+                    file_name="notas_originais.zip",
+                    mime="application/zip"
+                )
+        else:
             st.download_button(
                 label="⬇️ Baixar ZIP com XMLs alterados",
                 data=zip_buffer,
