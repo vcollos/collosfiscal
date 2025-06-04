@@ -110,8 +110,15 @@ if uploaded_files:
         st.session_state.df_geral = pd.concat([df_nfe, df_nfse], ignore_index=True)  # Atualizando df_geral no session state
         arquivos_dict = {**arquivos_nfe, **arquivos_nfse}
         st.session_state.arquivos_dict = arquivos_dict  # Salva no session state
+        
+        # Garantir que o número de chaves corresponda ao número de linhas
+        chaves = list(arquivos_dict.keys())
+        if len(chaves) != len(st.session_state.df_geral):
+            st.error(f"Erro: Número de arquivos ({len(chaves)}) não corresponde ao número de notas ({len(st.session_state.df_geral)})")
+            st.stop()
+            
         # Criar coluna 'chave' única para identificar cada linha com o nome do arquivo original
-        st.session_state.df_geral["chave"] = list(arquivos_dict.keys())
+        st.session_state.df_geral["chave"] = chaves
 
         # Garante que as colunas existam
         if "tipo_operacao" not in st.session_state.df_geral.columns:
@@ -383,6 +390,7 @@ if uploaded_files:
         import zipfile
         from lxml import etree
 
+        NFE_NAMESPACE = "http://www.portalfiscal.inf.br/nfe"
         allowed_cfops = {"1102", "2102", "1910", "2910", "1403", "2403", "1911"}
 
         # Pega todas as chaves onde tipo_operacao está entre os CFOPs permitidos
@@ -412,8 +420,34 @@ if uploaded_files:
                 try:
                     tree = etree.parse(io.BytesIO(conteudo))
                     root = tree.getroot()
+                    
+                    # Altera o CFOP
                     for elem_cfop in root.findall(".//{http://www.portalfiscal.inf.br/nfe}CFOP"):
                         elem_cfop.text = cfop
+
+                    # Limpa os campos de PIS e COFINS
+                    for pis in root.findall(".//{http://www.portalfiscal.inf.br/nfe}PIS"):
+                        # Remove todos os elementos filhos do PIS
+                        for child in pis:
+                            pis.remove(child)
+                        # Cria novo PISAliq vazio
+                        pis_aliq = etree.SubElement(pis, f"{{{NFE_NAMESPACE}}}PISAliq")
+                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
+                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
+                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}pPIS").text = ""
+                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vPIS").text = ""
+
+                    for cofins in root.findall(".//{http://www.portalfiscal.inf.br/nfe}COFINS"):
+                        # Remove todos os elementos filhos do COFINS
+                        for child in cofins:
+                            cofins.remove(child)
+                        # Cria novo COFINSAliq vazio
+                        cofins_aliq = etree.SubElement(cofins, f"{{{NFE_NAMESPACE}}}COFINSAliq")
+                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
+                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
+                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}pCOFINS").text = ""
+                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vCOFINS").text = ""
+
                     buffer = io.BytesIO()
                     tree.write(buffer, encoding="utf-8", xml_declaration=True, pretty_print=False)
                     zipf.writestr(nome_arquivo, buffer.getvalue())

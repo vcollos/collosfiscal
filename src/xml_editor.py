@@ -27,6 +27,24 @@ def alterar_cfops_e_gerar_zip(arquivos_dict, chaves_para_alterar, novo_cfop):
                 for cfop in root.findall(".//{http://www.portalfiscal.inf.br/nfe}CFOP"):
                     cfop.text = novo_cfop
 
+                for pis in root.findall(".//{http://www.portalfiscal.inf.br/nfe}PIS"):
+                    for child in pis:
+                        pis.remove(child)
+                    pis_aliq = etree.SubElement(pis, f"{{{NFE_NAMESPACE}}}PISAliq")
+                    etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
+                    etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
+                    etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}pPIS").text = ""
+                    etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vPIS").text = ""
+
+                for cofins in root.findall(".//{http://www.portalfiscal.inf.br/nfe}COFINS"):
+                    for child in cofins:
+                        cofins.remove(child)
+                    cofins_aliq = etree.SubElement(cofins, f"{{{NFE_NAMESPACE}}}COFINSAliq")
+                    etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
+                    etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
+                    etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}pCOFINS").text = ""
+                    etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vCOFINS").text = ""
+
                 buffer = io.BytesIO()
                 tree.write(buffer, encoding="utf-8", xml_declaration=True, pretty_print=False)
                 zipf.writestr(nome_arquivo, buffer.getvalue())
