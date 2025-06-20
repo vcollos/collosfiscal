@@ -5,14 +5,14 @@ After=network.target
 [Service]
 User=collos
 WorkingDirectory=/home/collos/apps/collosfiscal
-ExecStart=/home/collos/apps/collosfiscal/venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+ExecStart=/home/collos/apps/collosfiscal/start_app.sh
 Restart=always
 RestartSec=5
-Environment=DB_USER=collos
-Environment=DB_PASS=soeusei22
-Environment=DB_NAME=collosfiscal
-Environment=DB_HOST=localhost
-Environment=DB_PORT=5432
+Environment=SUPABASE_HOST=aws-0-us-east-1.pooler.supabase.com
+Environment=SUPABASE_PORT=6543
+Environment=SUPABASE_DB_NAME=postgres
+Environment=SUPABASE_USER=postgres.ddvpxxgdlqwmfugmdnvq
+Environment=SUPABASE_PASSWORD=So Eu Sei 22
 Environment=APP_ENV=production
 
 [Install]

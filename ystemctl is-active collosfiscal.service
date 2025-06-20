@@ -1,0 +1,6 @@
+● collosfiscal.service - CollosFiscal Streamlit App
+     Loaded: loaded (]8;;file://redecollos/etc/systemd/system/collosfiscal.service/etc/systemd/system/collosfiscal.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: activating (auto-restart) (Result: exit-code) since Thu 2025-06-19 15:38:26 UTC; 960ms ago
+    Process: 78220 ExecStart=/home/collos/apps/collosfiscal/venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0 [0;1;31m(code=exited, status=1/FAILURE)[0m
+   Main PID: 78220 (code=exited, status=1/FAILURE)
+        CPU: 363ms

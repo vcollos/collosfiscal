@@ -4,18 +4,19 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Carrega variáveis do arquivo .env se existir
 
-# Forçar uso do Supabase
-DB_USER = os.getenv("SUPABASE_USER", "postgres")
-DB_PASS = os.getenv("SUPABASE_PASSWORD")
-DB_HOST = os.getenv("SUPABASE_HOST")
-DB_PORT = os.getenv("SUPABASE_PORT", "5432")
-DB_NAME = os.getenv("SUPABASE_DB_NAME", "postgres")
+# Configurações do Supabase
+SUPABASE_USER = os.getenv("SUPABASE_USER", "postgres")
+SUPABASE_PASS = os.getenv("SUPABASE_PASSWORD")
+SUPABASE_HOST = os.getenv("SUPABASE_HOST")
+SUPABASE_PORT = os.getenv("SUPABASE_PORT", "5432")
+SUPABASE_NAME = os.getenv("SUPABASE_DB_NAME", "postgres")
 
-engine = create_engine(f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+# String de conexão do Supabase
+engine = create_engine(f"postgresql://{SUPABASE_USER}:{SUPABASE_PASS}@{SUPABASE_HOST}:{SUPABASE_PORT}/{SUPABASE_NAME}")
 
 metadata = MetaData()
 
-# Definição explícita das tabelas
+# Definição explícita das tabelas (mesma estrutura do db.py original)
 
 empresas = Table(
     "empresas",
@@ -77,11 +78,7 @@ preferencias_fornecedor_empresa = Table(
     extend_existing=True
 )
 
-metadata.create_all(engine)
-
-metadata.create_all(engine)
-
-# 📋 Funções para buscar interpretações
+# 📋 Funções para buscar interpretações (mesmas do db.py original)
 
 def buscar_origem_destino(digito):
     with engine.connect() as conn:
@@ -173,4 +170,4 @@ def salvar_preferencia_empresa_fornecedor(empresa_id, cnpj_fornecedor, tipo_oper
                 complemento=complemento
             )
         conn.execute(stmt)
-        conn.commit()
+        conn.commit() 
