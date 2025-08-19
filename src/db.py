@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Carrega variáveis do arquivo .env se existir
 
-# Forçar uso do Supabase
+
 DB_USER = os.getenv("SUPABASE_USER", "postgres")
 DB_PASS = os.getenv("SUPABASE_PASSWORD")
 DB_HOST = os.getenv("SUPABASE_HOST")
