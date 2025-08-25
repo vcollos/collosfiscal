@@ -9,15 +9,17 @@ SUPABASE_URL = None
 SUPABASE_KEY = None
 try:
     import streamlit as st
-    # Primeiro tenta a seção toml [supabase]
-    if "supabase" in st.secrets:
-        SUPABASE_URL = st.secrets["supabase"].get("SUPABASE_URL")
-        SUPABASE_KEY = st.secrets["supabase"].get("SUPABASE_KEY")
-    # Em seguida tenta chaves no nível superior
-    if not SUPABASE_URL:
-        SUPABASE_URL = st.secrets.get("SUPABASE_URL")
-    if not SUPABASE_KEY:
-        SUPABASE_KEY = st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_KEY")
+    try:
+        # Preferir seção [supabase] com chaves nomeadas como no exemplo do usuário
+        supabase_url = st.secrets["supabase"]["SUPABASE_URL"]
+        supabase_key = st.secrets["supabase"]["SUPABASE_ANON_KEY"]
+    except Exception:
+        # Fallback para chaves no nível superior
+        supabase_url = st.secrets.get("SUPABASE_URL")
+        supabase_key = st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_KEY")
+    # Normalizar para os nomes usados no restante do módulo
+    SUPABASE_URL = supabase_url
+    SUPABASE_KEY = supabase_key
 except Exception:
     # Não estamos em Streamlit ou não há secrets — seguir para variáveis de ambiente
     SUPABASE_URL = None
@@ -40,6 +42,19 @@ else:
 
 # Cria o engine SQLAlchemy
 engine = create_engine(DATABASE_URL)
+
+# Cria um cliente Supabase (SDK) quando fornecido SUPABASE_URL + SUPABASE_KEY (usado para operações via Supabase client)
+supabase = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        # Import local para evitar exigir a lib se o projeto usar apenas SQLAlchemy
+        from supabase import create_client, Client
+        # Normalmente SUPABASE_URL no st.secrets será do tipo "https://<project>.supabase.co"
+        # e SUPABASE_KEY será a anon/public key. Esse é o padrão para create_client.
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception:
+        # Falha ao importar ou criar o client — mantemos supabase = None
+        supabase = None
 
 metadata = MetaData()
 
