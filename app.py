@@ -17,7 +17,7 @@ from src.db import (
     salvar_preferencia_empresa_fornecedor
 )
 
-st.set_page_config(page_title="CollosFiscal Pro - NF-e e NFSe Inteligente", layout="wide")
+st.set_page_config(page_title="ContagFiscal Pro - NF-e e NFSe Inteligente", layout="wide")
 st.title("🧾 CollosFiscal Pro - NF-e e NFSe Inteligente")
 
 # Inicializa session state para persistir dados entre reruns
