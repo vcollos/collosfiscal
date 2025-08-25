@@ -36,23 +36,36 @@ if "selecionar_todos" not in st.session_state:
 def cadastrar_empresa(cnpj, razao_social, nome_fantasia):
     from src.db import engine, Table, MetaData, insert
     metadata = MetaData()
-    metadata.reflect(bind=engine)
-    empresas_table = Table('empresas', metadata, autoload_with=engine)
-    with engine.connect() as conn:
-        stmt = insert(empresas_table).values(cnpj=cnpj, nome=nome_fantasia, razao_social=razao_social)
-        conn.execute(stmt)
-        conn.commit()
+    try:
+        metadata.reflect(bind=engine)
+        empresas_table = Table('empresas', metadata, autoload_with=engine)
+        with engine.connect() as conn:
+            stmt = insert(empresas_table).values(cnpj=cnpj, nome=nome_fantasia, razao_social=razao_social)
+            conn.execute(stmt)
+            conn.commit()
+        return True
+    except Exception as e:
+        st.error("Não foi possível cadastrar empresa: banco indisponível ou credenciais faltando. Detalhe: " + str(e))
+        return False
 
 # Seleção da empresa no início da sessão com opção de cadastro
 if st.session_state.empresa_selecionada is None:
     from src.db import engine, Table, MetaData
     metadata = MetaData()
-    metadata.reflect(bind=engine)
-    empresas_table = Table('empresas', metadata, autoload_with=engine)
-    with engine.connect() as conn:
-        result = conn.execute(empresas_table.select())
-        empresas = result.fetchall()
-    empresa_options = {row[2]: row[0] for row in empresas}  # Ajuste para acessar por índice, nome na posição 2, id na posição 0
+    empresas = []
+    try:
+        # Tenta refletir as tabelas e buscar empresas. Em ambientes sem DB (ex: secrets não configurados)
+        # evitamos que a aplicação quebre em tempo de importação — tratamos a falha e seguimos em modo limitado.
+        metadata.reflect(bind=engine)
+        empresas_table = Table('empresas', metadata, autoload_with=engine)
+        with engine.connect() as conn:
+            result = conn.execute(empresas_table.select())
+            empresas = result.fetchall()
+    except Exception as e:
+        # Mostra aviso no Streamlit (logs do deploy também terão a stack trace); continua sem quebrar o app.
+        st.warning("Banco de dados indisponível ou credenciais não configuradas. Configure SUPABASE_* em Settings/Secrets. (Detalhe: " + str(e) + ")")
+        empresas = []
+    empresa_options = {row[2]: row[0] for row in empresas} if empresas else {}
 
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -69,9 +82,9 @@ if st.session_state.empresa_selecionada is None:
             submitted = st.form_submit_button("Cadastrar")
             if submitted:
                 if cnpj and razao_social and nome_fantasia:
-                    cadastrar_empresa(cnpj, razao_social, nome_fantasia)
-                    st.success("Empresa cadastrada com sucesso! Recarregue a página para selecionar.")
-                    st.session_state.show_cadastro_empresa = False
+                    if cadastrar_empresa(cnpj, razao_social, nome_fantasia):
+                        st.success("Empresa cadastrada com sucesso! Recarregue a página para selecionar.")
+                        st.session_state.show_cadastro_empresa = False
                 else:
                     st.error("Preencha todos os campos para cadastrar.")
 
@@ -549,13 +562,18 @@ if uploaded_files:
         if st.session_state.empresa_selecionada:
             from src.db import engine, Table, MetaData
             metadata = MetaData()
-            metadata.reflect(bind=engine)
-            empresas_table = Table('empresas', metadata, autoload_with=engine)
-            with engine.connect() as conn:
-                result = conn.execute(empresas_table.select().where(empresas_table.c.id == st.session_state.empresa_selecionada))
-                empresa = result.fetchone()
-                if empresa:
-                    nome_fantasia = empresa.nome or empresa.razao_social or "empresa"
+            nome_fantasia = ""
+            try:
+                metadata.reflect(bind=engine)
+                empresas_table = Table('empresas', metadata, autoload_with=engine)
+                with engine.connect() as conn:
+                    result = conn.execute(empresas_table.select().where(empresas_table.c.id == st.session_state.empresa_selecionada))
+                    empresa = result.fetchone()
+                    if empresa:
+                        nome_fantasia = empresa.nome or empresa.razao_social or "empresa"
+            except Exception as e:
+                st.warning("Não foi possível ler dados da empresa do banco: " + str(e))
+                nome_fantasia = "empresa"
 
         now = datetime.now()
         prefix = now.strftime("%Y/%m")
