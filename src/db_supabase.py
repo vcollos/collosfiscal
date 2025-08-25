@@ -4,15 +4,42 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Carrega variáveis do arquivo .env se existir
 
-# Configurações do Supabase
-SUPABASE_USER = os.getenv("SUPABASE_USER", "postgres")
-SUPABASE_PASS = os.getenv("SUPABASE_PASSWORD")
-SUPABASE_HOST = os.getenv("SUPABASE_HOST")
-SUPABASE_PORT = os.getenv("SUPABASE_PORT", "5432")
-SUPABASE_NAME = os.getenv("SUPABASE_DB_NAME", "postgres")
+# Tenta ler credenciais do Streamlit (st.secrets) quando disponível — mantém compatibilidade com execução local
+SUPABASE_URL = None
+SUPABASE_KEY = None
+try:
+    import streamlit as st
+    # Primeiro tenta a seção toml [supabase]
+    if "supabase" in st.secrets:
+        SUPABASE_URL = st.secrets["supabase"].get("SUPABASE_URL")
+        SUPABASE_KEY = st.secrets["supabase"].get("SUPABASE_KEY")
+    # Em seguida tenta chaves no nível superior
+    if not SUPABASE_URL:
+        SUPABASE_URL = st.secrets.get("SUPABASE_URL")
+    if not SUPABASE_KEY:
+        SUPABASE_KEY = st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_KEY")
+except Exception:
+    # Não estamos em Streamlit ou não há secrets — seguir para variáveis de ambiente
+    SUPABASE_URL = None
+    SUPABASE_KEY = None
 
-# String de conexão do Supabase
-engine = create_engine(f"postgresql://{SUPABASE_USER}:{SUPABASE_PASS}@{SUPABASE_HOST}:{SUPABASE_PORT}/{SUPABASE_NAME}")
+# Se SUPABASE_URL for um URL completo de banco (começa com postgres), usá-lo diretamente.
+if SUPABASE_URL and SUPABASE_URL.startswith("postgres"):
+    DATABASE_URL = SUPABASE_URL
+else:
+    # Carrega valores das variáveis de ambiente como fallback
+    SUPABASE_USER = os.getenv("SUPABASE_USER", "postgres")
+    SUPABASE_PASS = os.getenv("SUPABASE_PASSWORD")
+    SUPABASE_HOST = os.getenv("SUPABASE_HOST")
+    SUPABASE_PORT = os.getenv("SUPABASE_PORT", "5432")
+    SUPABASE_NAME = os.getenv("SUPABASE_DB_NAME", "postgres")
+
+    # Se preferir, o usuário pode fornecer apenas um SUPABASE_URL que não é um URL pg;
+    # aqui mantemos a construção tradicional da connection string a partir das partes.
+    DATABASE_URL = f"postgresql://{SUPABASE_USER}:{SUPABASE_PASS}@{SUPABASE_HOST}:{SUPABASE_PORT}/{SUPABASE_NAME}"
+
+# Cria o engine SQLAlchemy
+engine = create_engine(DATABASE_URL)
 
 metadata = MetaData()
 
@@ -170,4 +197,4 @@ def salvar_preferencia_empresa_fornecedor(empresa_id, cnpj_fornecedor, tipo_oper
                 complemento=complemento
             )
         conn.execute(stmt)
-        conn.commit() 
+        conn.commit()
