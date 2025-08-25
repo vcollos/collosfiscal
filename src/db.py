@@ -31,9 +31,8 @@ origem_destino_cfop = Table(
     "origem_destino_cfop",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("origem", String, nullable=False),
-    Column("destino", String, nullable=False),
-    Column("cfop", String, nullable=False),
+    Column("codigo", String(10), nullable=False, unique=True),
+    Column("descricao", String(255), nullable=False),
     extend_existing=True
 )
 
@@ -41,7 +40,8 @@ tipo_operacao_cfop = Table(
     "tipo_operacao_cfop",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("descricao", String, nullable=False),
+    Column("codigo", String(10), nullable=False, unique=True),
+    Column("descricao", String(255), nullable=False),
     extend_existing=True
 )
 
@@ -49,7 +49,8 @@ finalidade_cfop = Table(
     "finalidade_cfop",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("descricao", String, nullable=False),
+    Column("codigo", String(10), nullable=False, unique=True),
+    Column("descricao", String(255), nullable=False),
     extend_existing=True
 )
 
@@ -77,9 +78,14 @@ preferencias_fornecedor_empresa = Table(
     extend_existing=True
 )
 
-metadata.create_all(engine)
-
-metadata.create_all(engine)
+try:
+    metadata.create_all(engine)
+except Exception as e:
+    # Evita quebrar a importação do módulo quando o banco não estiver configurado
+    # ou indisponível no momento do deploy (ex: Streamlit Cloud). As funções
+    # que dependem do engine ainda irão falhar quando chamadas, mas o app
+    # poderá iniciar e tratar a falha de conexão posteriormente.
+    print(f"Warning: não foi possível criar/refletir tabelas no import time: {e}")
 
 # 📋 Funções para buscar interpretações
 
