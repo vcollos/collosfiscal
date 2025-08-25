@@ -18,7 +18,7 @@ from src.db import (
 )
 
 st.set_page_config(page_title="ContagFiscal Pro - NF-e e NFSe Inteligente", layout="wide")
-st.title("🧾 CollosFiscal Pro - NF-e e NFSe Inteligente")
+st.title("🧾 ContagFiscal Pro - NF-e e NFSe Inteligente")
 
 # Inicializa session state para persistir dados entre reruns
 if "empresa_selecionada" not in st.session_state:
