@@ -40,8 +40,14 @@ else:
     # aqui mantemos a construção tradicional da connection string a partir das partes.
     DATABASE_URL = f"postgresql://{SUPABASE_USER}:{SUPABASE_PASS}@{SUPABASE_HOST}:{SUPABASE_PORT}/{SUPABASE_NAME}"
 
+# Respeita configuração de SSL (útil para conexões com Supabase)
+PG_SSLMODE = os.getenv("PG_SSLMODE")
+connect_args = {}
+if PG_SSLMODE:
+    connect_args = {"sslmode": PG_SSLMODE}
+
 # Cria o engine SQLAlchemy
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 # Cria um cliente Supabase (SDK) quando fornecido SUPABASE_URL + SUPABASE_KEY (usado para operações via Supabase client)
 supabase = None
