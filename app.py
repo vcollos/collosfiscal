@@ -3,6 +3,7 @@ from streamlit import rerun
 import pandas as pd
 import zipfile
 import io
+from lxml import etree
 
 from src.xml_reader import extrair_dados_xmls
 from src.nfse_reader import extrair_dados_nfses_xmls
@@ -31,6 +32,13 @@ if "filtro_texto" not in st.session_state:
     st.session_state.filtro_texto = ""
 if "selecionar_todos" not in st.session_state:
     st.session_state.selecionar_todos = False
+if "arquivos_dict" not in st.session_state:
+    st.session_state.arquivos_dict = {}
+if "itens_por_chave" not in st.session_state:
+    st.session_state.itens_por_chave = {}
+if "item_cfops" not in st.session_state:
+    # estrutura: {chave: {nItem: cfop_str}}
+    st.session_state.item_cfops = {}
 
 # Função para cadastrar empresa
 def cadastrar_empresa(cnpj, razao_social, nome_fantasia):
@@ -98,6 +106,9 @@ if st.session_state.empresa_selecionada is None:
 # Upload de XMLs
 if st.button("🔄 Recarregar dados"):
     st.session_state.df_geral = None
+    st.session_state.arquivos_dict = {}
+    st.session_state.itens_por_chave = {}
+    st.session_state.item_cfops = {}
     rerun()
 
 uploaded_files = st.file_uploader("📂 Envie os arquivos XML das NF-es e NFS-es", type=["xml"], accept_multiple_files=True)
@@ -117,37 +128,34 @@ if uploaded_files:
             b2.name = file.name
             files_copy_2.append(b2)
 
-        df_nfe, arquivos_nfe = extrair_dados_xmls(files_copy_1)
+        # xml_reader.extrair_dados_xmls agora retorna df, arquivos_dict, itens_por_chave
+        df_nfe, arquivos_nfe, itens_por_chave = extrair_dados_xmls(files_copy_1)
         df_nfse, arquivos_nfse = extrair_dados_nfses_xmls(files_copy_2)
 
         st.session_state.df_geral = pd.concat([df_nfe, df_nfse], ignore_index=True)  # Atualizando df_geral no session state
-        arquivos_dict = {**arquivos_nfe, **arquivos_nfse}
+
+        # Merge dos arquivos e itens
+        arquivos_dict = {**(arquivos_nfe or {}), **(arquivos_nfse or {})}
         st.session_state.arquivos_dict = arquivos_dict  # Salva no session state
-        
-        # Garantir que o número de chaves corresponda ao número de linhas
+        st.session_state.itens_por_chave = itens_por_chave or {}
+
+        # Garantir que o número de chaves corresponda ao número de linhas (apenas aviso)
         chaves = list(arquivos_dict.keys())
         if len(chaves) != len(st.session_state.df_geral):
-            st.error(f"Erro: Número de arquivos ({len(chaves)}) não corresponde ao número de notas ({len(st.session_state.df_geral)})")
-            st.stop()
-            
+            st.warning(f"Atenção: Número de arquivos ({len(chaves)}) pode não corresponder ao número de notas ({len(st.session_state.df_geral)}). Isso é esperado para NFSe ou se nomes repetirem.")
+
         # Criar coluna 'chave' única para identificar cada linha com o nome do arquivo original
-        st.session_state.df_geral["chave"] = chaves
+        # OBS: extrair_dados_xmls já popula 'chave' nas linhas; mantemos consistência usando a coluna existente.
+        if "chave" not in st.session_state.df_geral.columns:
+            st.session_state.df_geral["chave"] = chaves
 
         # Garante que as colunas existam
-        if "tipo_operacao" not in st.session_state.df_geral.columns:
-            st.session_state.df_geral["tipo_operacao"] = ""
-        if "data_nota" not in st.session_state.df_geral.columns:
-            st.session_state.df_geral["data_nota"] = ""
-        if "complemento" not in st.session_state.df_geral.columns:
-            st.session_state.df_geral["complemento"] = ""
-
-        # Adiciona colunas Debito, Credito e Historico se não existirem
-        if "debito" not in st.session_state.df_geral.columns:
-            st.session_state.df_geral["debito"] = ""
-        if "credito" not in st.session_state.df_geral.columns:
-            st.session_state.df_geral["credito"] = ""
-        if "historico" not in st.session_state.df_geral.columns:
-            st.session_state.df_geral["historico"] = ""
+        for col in ["tipo_operacao", "data_nota", "complemento", "debito", "credito", "historico", "explodir"]:
+            if col not in st.session_state.df_geral.columns:
+                if col == "explodir":
+                    st.session_state.df_geral[col] = False
+                else:
+                    st.session_state.df_geral[col] = ""
 
         # Aplica preferências salvas no banco para a empresa selecionada
         empresa_id = st.session_state.empresa_selecionada
@@ -196,19 +204,21 @@ if uploaded_files:
             df_filtrado = st.session_state.df_geral.copy()
         else:
             # Garante que as colunas Debito, Credito e Historico estejam presentes no df_filtrado
-            for col in ["debito", "credito", "historico"]:
+            for col in ["debito", "credito", "historico", "explodir"]:
                 if col not in df_filtrado.columns:
-                    df_filtrado[col] = ""
+                    df_filtrado[col] = "" if col != "explodir" else False
     else:
         df_filtrado = st.session_state.df_geral.copy()
         # Garante que as colunas Debito, Credito e Historico estejam presentes no df_filtrado
-        for col in ["debito", "credito", "historico"]:
+        for col in ["debito", "credito", "historico", "explodir"]:
             if col not in df_filtrado.columns:
-                df_filtrado[col] = ""
+                df_filtrado[col] = "" if col != "explodir" else False
     
     # Adiciona coluna de seleção com valor do checkbox selecionar_todos para todas as linhas
     df_filtrado.insert(0, "Selecionar", st.session_state.selecionar_todos)
-    
+    # Adiciona coluna Explodir logo após
+    df_filtrado.insert(1, "Explodir", df_filtrado.get("explodir", False))
+
     # Lista de códigos CFOP para seleção direta
     CFOP_CODES = [
         "1102",  # Consumo - Dentro do Estado
@@ -227,6 +237,12 @@ if uploaded_files:
             "Selecionar": st.column_config.CheckboxColumn(
                 "Selecionar",
                 help="Selecione as linhas para edição em massa",
+                default=False,
+                width="small",
+            ),
+            "Explodir": st.column_config.CheckboxColumn(
+                "Explodir",
+                help="Marque para explodir itens desta nota e editar CFOP por item",
                 default=False,
                 width="small",
             ),
@@ -289,6 +305,7 @@ if uploaded_files:
         debito = row.get("debito", "")
         credito = row.get("credito", "")
         historico = row.get("historico", "")
+        explodir_flag = row.get("Explodir", False)
         
         # Grava no df_geral sempre o código diretamente
         st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "tipo_operacao"] = tipo_operacao_codigo
@@ -297,9 +314,183 @@ if uploaded_files:
         st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "debito"] = debito
         st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "credito"] = credito
         st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "historico"] = historico
+        st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "explodir"] = explodir_flag
     
     st.divider()
 
+    # Se houver notas marcadas como Explodir, mostrar painel para selecionar CFOP por item
+    notas_explodir = st.session_state.df_geral[st.session_state.df_geral["explodir"] == True]
+    if not notas_explodir.empty:
+        st.subheader("🔧 Itens das notas marcadas para explodir (defina CFOP por item)")
+        for _, nota in notas_explodir.iterrows():
+            chave = nota["chave"]
+            fornecedor = nota.get("fornecedor", "")
+            itens = st.session_state.itens_por_chave.get(chave, [])
+            if not itens:
+                st.info(f"Nota {chave} ({fornecedor}) não possui itens extraídos ou é NFSe.")
+                continue
+
+            if chave not in st.session_state.item_cfops:
+                st.session_state.item_cfops[chave] = {}
+
+            with st.expander(f"Itens da nota {chave} - {fornecedor}", expanded=False):
+                cols = st.columns([1, 4, 1, 2])
+                for item in itens:
+                    nItem = item.get("nItem", "")
+                    xProd = item.get("xProd", "")
+                    vProd = item.get("vProd", "0")
+                    current = st.session_state.item_cfops[chave].get(nItem) or item.get("cfop") or nota.get("tipo_operacao") or ""
+                    # CFOP selection per item
+                    cfop_selecionado = st.selectbox(
+                        label=f"CFOP item {nItem} - {xProd}",
+                        options=[""] + CFOP_CODES,
+                        index=([""] + CFOP_CODES).index(current) if current in CFOP_CODES else 0,
+                        key=f"{chave}_{nItem}_cfop"
+                    )
+                    st.session_state.item_cfops[chave][nItem] = cfop_selecionado
+                    # display product info inline
+                    cols[1].write(f"{xProd}")
+                    cols[2].write(f"Qtd: {item.get('qCom', '')}")
+                    cols[3].write(f"Valor: {vProd}")
+
+    # Tabela combinada: mantém a linha da nota e insere as linhas dos itens logo abaixo (nota + sublinhas)
+    # Monta um DataFrame com linhas de nota e linhas de item para edição inline
+    combined_rows = []
+    for _, nota in st.session_state.df_geral.iterrows():
+        chave = nota["chave"]
+        # Linha da nota (tipo 'nota')
+        combined_rows.append({
+            "row_type": "nota",
+            "chave": chave,
+            "Selecionar": False,
+            "Explodir": bool(nota.get("explodir", False)),
+            "tipo_operacao": nota.get("tipo_operacao", ""),
+            "data_nota": nota.get("data_nota", ""),
+            "complemento": nota.get("complemento", ""),
+            "debito": nota.get("debito", ""),
+            "credito": nota.get("credito", ""),
+            "historico": nota.get("historico", ""),
+            "fornecedor": nota.get("fornecedor", ""),
+            "cnpj_emissor": nota.get("cnpj_emissor", ""),
+            "display": f"NOTA: {nota.get('fornecedor','')} - {chave}"
+        })
+        # Se a nota estiver marcada para explodir, adiciona linhas dos itens logo abaixo (tipo 'item')
+        if bool(nota.get("explodir", False)):
+            itens = st.session_state.itens_por_chave.get(chave, [])
+            for item in itens:
+                nItem = item.get("nItem", "")
+                combined_rows.append({
+                    "row_type": "item",
+                    "parent_chave": chave,
+                    "nItem": nItem,
+                    "chave": chave,
+                    "Selecionar": False,
+                    "Explodir": True,
+                    "tipo_operacao": st.session_state.item_cfops.get(chave, {}).get(nItem, item.get("cfop") or ""),
+                    "data_nota": nota.get("data_nota", ""),
+                    "complemento": f"ITEM {nItem} - {item.get('xProd','')}",
+                    "debito": "",
+                    "credito": "",
+                    "historico": "",
+                    "fornecedor": f"  ↳ {item.get('xProd','')}",
+                    "cnpj_emissor": "",
+                    "display": f"  ITEM {nItem}: {item.get('xProd','')}"
+                })
+
+    combined_df = pd.DataFrame(combined_rows)
+    if not combined_df.empty:
+        st.subheader("🧾 Notas + Itens (linhas dos itens aparecem abaixo da nota)")
+        # Exibe o editor com as linhas combinadas
+        edited_combined = st.data_editor(
+            combined_df.drop(columns=["row_type", "parent_chave", "nItem"], errors="ignore"),
+            column_config={
+                "Selecionar": st.column_config.CheckboxColumn(
+                    "Selecionar",
+                    help="Selecione a nota (aplica apenas a notas)",
+                    default=False,
+                    width="small",
+                ),
+                "Explodir": st.column_config.CheckboxColumn(
+                    "Explodir",
+                    help="Indicador se a nota foi explodida (itens visíveis)",
+                    default=False,
+                    width="small",
+                ),
+                "tipo_operacao": st.column_config.SelectboxColumn(
+                    "Tipo Operação",
+                    help="Tipo de operação (CFOP code). Para itens, será aplicado ao item específico",
+                    width="small",
+                    options=[""] + CFOP_CODES,
+                ),
+                "data_nota": st.column_config.TextColumn(
+                    "Data da Nota",
+                    help="Data da nota fiscal",
+                    width="small",
+                    disabled=False,
+                ),
+                "complemento": st.column_config.TextColumn(
+                    "Complemento",
+                    help="Complemento da nota ou descrição do item",
+                    width="medium",
+                    disabled=False,
+                ),
+                "debito": st.column_config.TextColumn(
+                    "Debito",
+                    help="Débito (13 dígitos)",
+                    width="small",
+                    disabled=False,
+                ),
+                "credito": st.column_config.TextColumn(
+                    "Credito",
+                    help="Crédito (13 dígitos)",
+                    width="small",
+                    disabled=False,
+                ),
+                "historico": st.column_config.TextColumn(
+                    "Historico",
+                    help="Histórico (9 dígitos)",
+                    width="small",
+                    disabled=False,
+                ),
+            },
+            hide_index=True,
+            height=500,
+            use_container_width=True,
+            num_rows="fixed",
+            key="data_editor_combined"
+        )
+
+        # Propaga alterações do editor combinado de volta ao estado
+        # Nós precisamos manter o mapeamento entre as linhas exibidas e as linhas origem (nota vs item)
+        # Como o data_editor foi passado sem as colunas auxiliares, usamos a mesma ordem das linhas de combined_df
+        for i, (_, src_row) in enumerate(combined_df.iterrows()):
+            try:
+                edited_row = edited_combined.iloc[i]
+            except Exception:
+                continue
+
+            if src_row.get("row_type") == "nota":
+                chave = src_row.get("chave")
+                # Atualiza apenas campos do nível da nota
+                st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "tipo_operacao"] = edited_row.get("tipo_operacao", "")
+                st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "data_nota"] = edited_row.get("data_nota", "")
+                st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "complemento"] = edited_row.get("complemento", "")
+                st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "debito"] = edited_row.get("debito", "")
+                st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "credito"] = edited_row.get("credito", "")
+                st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "historico"] = edited_row.get("historico", "")
+                st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "explodir"] = bool(edited_row.get("Explodir", False))
+            elif src_row.get("row_type") == "item":
+                parent = src_row.get("parent_chave")
+                nItem = src_row.get("nItem")
+                cfop_val = edited_row.get("tipo_operacao", "")
+                # Salva CFOP do item no session_state.item_cfops
+                if parent:
+                    if parent not in st.session_state.item_cfops:
+                        st.session_state.item_cfops[parent] = {}
+                    st.session_state.item_cfops[parent][str(nItem)] = cfop_val
+
+    else:
+        st.info("Nenhuma nota carregada para exibir com itens.")
     # Alterar tipo de operação em massa
     col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
     
@@ -399,73 +590,151 @@ if uploaded_files:
 
     # Gerar e exportar ZIP com XMLs alterados
     def gerar_zip_com_xmls_alterados():
-        import io
-        import zipfile
-        from lxml import etree
-
         NFE_NAMESPACE = "http://www.portalfiscal.inf.br/nfe"
         allowed_cfops = {"1102", "2102", "1910", "2910", "1403", "2403", "1911"}
 
-        # Pega todas as chaves onde tipo_operacao está entre os CFOPs permitidos
-        chaves_selecionadas = st.session_state.df_geral[
-            st.session_state.df_geral["tipo_operacao"].isin(allowed_cfops)
-        ]["chave"].tolist()
+        # Pega todas as chaves onde tipo_operacao está entre os CFOPs permitidos OR que foram explodidas com items com CFOPs
+        chaves_por_processar = []
 
-        if not chaves_selecionadas:
-            st.warning("Nenhuma nota com CFOP permitido para gerar XML.")
+        # Notas com CFOP válido no nível da nota
+        chaves_por_processar.extend(
+            st.session_state.df_geral[
+                st.session_state.df_geral["tipo_operacao"].isin(allowed_cfops)
+            ]["chave"].tolist()
+        )
+
+        # Notas explodidas com item CFOPs definidos
+        for chave, itens_map in st.session_state.item_cfops.items():
+            if any(v for v in itens_map.values()):
+                if chave not in chaves_por_processar:
+                    chaves_por_processar.append(chave)
+
+        if not chaves_por_processar:
+            st.warning("Nenhuma nota com CFOP permitido ou itens explodidos com CFOP definido para gerar XML.")
             return None
 
         arquivos_filtrados = {}
-        for chave in chaves_selecionadas:
-            # Pega o tipo_operacao para essa chave
-            novo_cfop = st.session_state.df_geral.loc[
-                st.session_state.df_geral["chave"] == chave,
-                "tipo_operacao"
-            ].values[0]
+        for chave in chaves_por_processar:
             # Pega o conteúdo original do XML
-            conteudo_xml = st.session_state.arquivos_dict.get(chave)
-            if conteudo_xml:
-                arquivos_filtrados[chave] = (conteudo_xml, novo_cfop)
+            conteudo_xml = st.session_state.arquivos_dict.get(chave) or st.session_state.arquivos_dict.get(chave + ".xml")
+            if not conteudo_xml:
+                continue
+
+            # Decide se a nota é explodida
+            explodida = bool(st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "explodir"].values[0])
+
+            if explodida:
+                # Usará as escolhas em st.session_state.item_cfops[chave]
+                itens = st.session_state.itens_por_chave.get(chave, [])
+                itens_map = st.session_state.item_cfops.get(chave, {})
+                # Agrupa itens por CFOP escolhido
+                grupos = {}
+                for item in itens:
+                    nItem = item.get("nItem", "")
+                    cfop_selecionado = itens_map.get(nItem) or item.get("cfop") or st.session_state.df_geral.loc[st.session_state.df_geral["chave"] == chave, "tipo_operacao"].values[0]
+                    if not cfop_selecionado:
+                        continue
+                    grupos.setdefault(cfop_selecionado, []).append(item)
+
+                # Para cada grupo, cria um XML separado contendo somente os det correspondentes
+                for cfop_val, itens_do_grupo in grupos.items():
+                    # Gera nome de arquivo baseado no original + cfop
+                    original_name = chave if chave.endswith(".xml") else f"{chave}.xml"
+                    nome_saida = f"{original_name.rstrip('.xml')}__{cfop_val}.xml"
+
+                    try:
+                        tree = etree.parse(io.BytesIO(conteudo_xml))
+                        root = tree.getroot()
+
+                        # Remove dets que não pertencem ao grupo (identificando por nItem)
+                        dets = root.findall(".//{http://www.portalfiscal.inf.br/nfe}det")
+                        nitems_keep = set([it.get("nItem") for it in itens_do_grupo if it.get("nItem")])
+                        for det in dets:
+                            nItem_attr = det.get("nItem", "")
+                            if nItem_attr not in nitems_keep:
+                                parent = det.getparent()
+                                parent.remove(det)
+
+                        # Atualiza CFOP em itens mantidos
+                        for det in root.findall(".//{http://www.portalfiscal.inf.br/nfe}det"):
+                            prod = det.find("{http://www.portalfiscal.inf.br/nfe}prod")
+                            if prod is None:
+                                continue
+                            nItem_attr = det.get("nItem", "")
+                            if nItem_attr in nitems_keep:
+                                cfop_elem = prod.find("{http://www.portalfiscal.inf.br/nfe}CFOP")
+                                if cfop_elem is None:
+                                    cfop_elem = etree.SubElement(prod, f"{{{NFE_NAMESPACE}}}CFOP")
+                                cfop_elem.text = cfop_val
+
+                        # Recalcula vNF (valor total da nota) como soma dos vProd dos dets mantidos
+                        soma = 0.0
+                        for prod in root.findall(".//{http://www.portalfiscal.inf.br/nfe}prod"):
+                            vProd = prod.findtext("{http://www.portalfiscal.inf.br/nfe}vProd", default="0") or "0"
+                            try:
+                                soma += float(vProd)
+                            except Exception:
+                                pass
+                        # Atualiza elemento vNF se existir
+                        vnf_elem = root.find(".//{http://www.portalfiscal.inf.br/nfe}vNF")
+                        if vnf_elem is not None:
+                            vnf_elem.text = f"{soma:.2f}"
+                        # Também atualizar elementos de totais se necessário (opcional)
+
+                        # Limpa PIS/COFINS como antes
+                        for pis in root.findall(".//{http://www.portalfiscal.inf.br/nfe}PIS"):
+                            for child in list(pis):
+                                pis.remove(child)
+                            pis_aliq = etree.SubElement(pis, f"{{{NFE_NAMESPACE}}}PISAliq")
+                            etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
+                            etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
+                            etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}pPIS").text = ""
+                            etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vPIS").text = ""
+
+                        for cofins in root.findall(".//{http://www.portalfiscal.inf.br/nfe}COFINS"):
+                            for child in list(cofins):
+                                cofins.remove(child)
+                            cofins_aliq = etree.SubElement(cofins, f"{{{NFE_NAMESPACE}}}COFINSAliq")
+                            etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
+                            etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
+                            etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}pCOFINS").text = ""
+                            etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vCOFINS").text = ""
+
+                        buffer = io.BytesIO()
+                        tree.write(buffer, encoding="utf-8", xml_declaration=True, pretty_print=False)
+                        arquivos_filtrados[nome_saida] = (buffer.getvalue(), cfop_val)
+                    except Exception as e:
+                        print(f"Erro ao processar explodida {chave} grupo {cfop_val}: {e}")
+                        continue
+
+            else:
+                # Não explodida: pega o cfop no nível da nota (se estiver entre allowed_cfops)
+                novo_cfop = st.session_state.df_geral.loc[
+                    st.session_state.df_geral["chave"] == chave,
+                    "tipo_operacao"
+                ].values[0]
+                try:
+                    arquivos_filtrados[chave] = (conteudo_xml, novo_cfop)
+                except Exception as e:
+                    print(f"Erro ao preparar arquivo {chave}: {e}")
+                    continue
+
+        if not arquivos_filtrados:
+            st.warning("Nenhum arquivo válido para gerar ZIP.")
+            return None
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zipf:
             for nome_arquivo, (conteudo, cfop) in arquivos_filtrados.items():
                 try:
-                    tree = etree.parse(io.BytesIO(conteudo))
-                    root = tree.getroot()
-                    
-                    # Altera o CFOP
-                    for elem_cfop in root.findall(".//{http://www.portalfiscal.inf.br/nfe}CFOP"):
-                        elem_cfop.text = cfop
-
-                    # Limpa os campos de PIS e COFINS
-                    for pis in root.findall(".//{http://www.portalfiscal.inf.br/nfe}PIS"):
-                        # Remove todos os elementos filhos do PIS
-                        for child in pis:
-                            pis.remove(child)
-                        # Cria novo PISAliq vazio
-                        pis_aliq = etree.SubElement(pis, f"{{{NFE_NAMESPACE}}}PISAliq")
-                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
-                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
-                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}pPIS").text = ""
-                        etree.SubElement(pis_aliq, f"{{{NFE_NAMESPACE}}}vPIS").text = ""
-
-                    for cofins in root.findall(".//{http://www.portalfiscal.inf.br/nfe}COFINS"):
-                        # Remove todos os elementos filhos do COFINS
-                        for child in cofins:
-                            cofins.remove(child)
-                        # Cria novo COFINSAliq vazio
-                        cofins_aliq = etree.SubElement(cofins, f"{{{NFE_NAMESPACE}}}COFINSAliq")
-                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}CST").text = ""
-                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vBC").text = ""
-                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}pCOFINS").text = ""
-                        etree.SubElement(cofins_aliq, f"{{{NFE_NAMESPACE}}}vCOFINS").text = ""
-
-                    buffer = io.BytesIO()
-                    tree.write(buffer, encoding="utf-8", xml_declaration=True, pretty_print=False)
-                    zipf.writestr(nome_arquivo, buffer.getvalue())
+                    # Se já é bytes (do explodido), escrevemos diretamente.
+                    if isinstance(conteudo, (bytes, bytearray)):
+                        zipf.writestr(nome_arquivo, conteudo)
+                    else:
+                        # Caso seja objeto io.BytesIO
+                        zipf.writestr(nome_arquivo, conteudo)
                 except Exception as e:
-                    print(f"Erro ao processar {nome_arquivo}: {e}")
+                    print(f"Erro ao adicionar {nome_arquivo} ao ZIP: {e}")
                     continue
         zip_buffer.seek(0)
         return zip_buffer
@@ -473,24 +742,17 @@ if uploaded_files:
     if st.button("📦 Gerar ZIP com XMLs alterados"):
         zip_buffer = gerar_zip_com_xmls_alterados()
         if zip_buffer is None:
-            # Se não houver notas com CFOP permitido, tenta gerar a partir do df_geral sem alterações
-            allowed_cfops = {"1102", "2102", "1910", "2910", "1403", "2403", "1911"}
-            chaves_selecionadas = st.session_state.df_geral[
-                st.session_state.df_geral["tipo_operacao"].isin(allowed_cfops)
-            ]["chave"].tolist()
+            # Se não houver notas/itens para gerar, tenta gerar a partir do df_geral sem alterações
             arquivos_filtrados = {}
-            for chave in chaves_selecionadas:
-                conteudo_xml = st.session_state.arquivos_dict.get(chave + ".xml")
-                if conteudo_xml is None:
-                    conteudo_xml = st.session_state.arquivos_dict.get(chave)
+            for _, row in st.session_state.df_geral.iterrows():
+                chave = row["chave"]
+                conteudo_xml = st.session_state.arquivos_dict.get(chave) or st.session_state.arquivos_dict.get(chave + ".xml")
                 if conteudo_xml:
-                    arquivos_filtrados[chave + ".xml"] = (conteudo_xml, None)
+                    arquivos_filtrados[f"{chave}.xml"] = (conteudo_xml, None)
 
             if not arquivos_filtrados:
                 st.warning("Nenhuma nota válida para gerar ZIP.")
             else:
-                import io
-                import zipfile
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w") as zipf:
                     for nome_arquivo, (conteudo, _) in arquivos_filtrados.items():

@@ -5,8 +5,17 @@ import io
 NFE_NAMESPACE = "http://www.portalfiscal.inf.br/nfe"
 
 def extrair_dados_xmls(arquivos_xml):
+    """
+    Extrai dados principais das NF-e e também os itens de cada nota.
+
+    Retorna:
+      - df: DataFrame com registros por nota (chave, fornecedor, cnpj_emissor, valor_total, cfop_atual, ...)
+      - arquivos_dict: mapeamento nome_arquivo -> conteúdo_bytes (compatível com uso anterior)
+      - itens_por_chave: mapeamento chave -> lista de itens (cada item é dict com campos como nItem, cProd, xProd, qCom, vProd, cfop)
+    """
     registros = []
     arquivos_dict = {}
+    itens_por_chave = {}
 
     for file in arquivos_xml:
         try:
@@ -14,8 +23,13 @@ def extrair_dados_xmls(arquivos_xml):
             tree = etree.parse(file)
             root = tree.getroot()
 
-            # Salvar conteúdo do arquivo
-            arquivos_dict[file.name] = file.getvalue()
+            # Salvar conteúdo do arquivo (mantendo compatibilidade: nome -> bytes)
+            try:
+                arquivos_dict[file.name] = file.getvalue()
+            except Exception:
+                # Se o objeto não tiver getvalue (por alguma razão), ler do começo
+                file.seek(0)
+                arquivos_dict[file.name] = file.read()
 
             infNFe = root.find(".//{http://www.portalfiscal.inf.br/nfe}infNFe")
             if infNFe is None:
@@ -43,22 +57,48 @@ def extrair_dados_xmls(arquivos_xml):
             numero_nota = root.findtext(".//{http://www.portalfiscal.inf.br/nfe}nNF", default="")
             complemento = f"{cnpj_emissor} {fornecedor} {numero_nota}"
 
+            # Extrair itens (det)
+            itens = []
+            for det in root.findall(".//{http://www.portalfiscal.inf.br/nfe}det"):
+                # nItem normalmente é atributo do det
+                nItem = det.get("nItem", "")
+                prod = det.find("{http://www.portalfiscal.inf.br/nfe}prod")
+                if prod is None:
+                    continue
+                cProd = prod.findtext("{http://www.portalfiscal.inf.br/nfe}cProd", default="")
+                xProd = prod.findtext("{http://www.portalfiscal.inf.br/nfe}xProd", default="")
+                qCom = prod.findtext("{http://www.portalfiscal.inf.br/nfe}qCom", default="")
+                vProd = prod.findtext("{http://www.portalfiscal.inf.br/nfe}vProd", default="")
+                cfop_item = prod.findtext("{http://www.portalfiscal.inf.br/nfe}CFOP", default="")
+
+                itens.append({
+                    "nItem": nItem,
+                    "cProd": cProd,
+                    "xProd": xProd,
+                    "qCom": qCom,
+                    "vProd": vProd,
+                    "cfop": cfop_item
+                })
+
+            # Salva itens por chave
+            itens_por_chave[chave] = itens
+
             registros.append({
                 "chave": chave,
                 "tipo": "NFe",
                 "fornecedor": fornecedor,
                 "cnpj_emissor": cnpj_emissor,
-                "valor_total": float(valor_total),
+                "valor_total": float(valor_total) if valor_total not in (None, "") else 0.0,
                 "cfop_atual": cfop_atual,
-                "credito_icms": float(credito_icms),
+                "credito_icms": float(credito_icms) if credito_icms not in (None, "") else 0.0,
                 "data_nota": data_emissao,
                 "complemento": complemento,
                 "nNF": numero_nota
             })
 
         except Exception as e:
-            print(f"Erro ao processar {file.name}: {e}")
+            print(f"Erro ao processar {getattr(file, 'name', str(file))}: {e}")
             continue
 
     df = pd.DataFrame(registros)
-    return df, arquivos_dict
+    return df, arquivos_dict, itens_por_chave
