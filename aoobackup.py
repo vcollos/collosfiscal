@@ -15,9 +15,7 @@ from src.db import (
     buscar_tipo_operacao_emissor,
     salvar_tipo_operacao_emissor,
     buscar_preferencia_empresa_fornecedor,
-    salvar_preferencia_empresa_fornecedor,
-    listar_cfops,
-    adicionar_ou_atualizar_cfop
+    salvar_preferencia_empresa_fornecedor
 )
 
 st.set_page_config(page_title="ContagFiscal Pro - NF-e e NFSe Inteligente", layout="wide")
@@ -41,11 +39,6 @@ if "itens_por_chave" not in st.session_state:
 if "item_cfops" not in st.session_state:
     # estrutura: {chave: {nItem: cfop_str}}
     st.session_state.item_cfops = {}
-if "item_cfops_undo" not in st.session_state:
-    # pilha de alterações em lote: cada item é uma lista de dicts {chave, nItem, old, new}
-    st.session_state.item_cfops_undo = []
-if "apply_busy" not in st.session_state:
-    st.session_state.apply_busy = False
 
 # Função para cadastrar empresa
 def cadastrar_empresa(cnpj, razao_social, nome_fantasia):
@@ -135,31 +128,9 @@ if uploaded_files:
             b2.name = file.name
             files_copy_2.append(b2)
 
-        # Barras de progresso para leitura
-        total_nfe = len(files_copy_1)
-        total_nfse = len(files_copy_2)
-        prog_nfe = st.progress(0, text=f"NF-e 0/{total_nfe}")
-        prog_nfse = st.progress(0, text=f"NFS-e 0/{total_nfse}")
-
-        def _upd_nfe(i, total, name=None):
-            if total:
-                pct = int(i * 100 / total)
-                txt = f"NF-e {i}/{total}"
-                if name:
-                    txt += f" — {name}"
-                prog_nfe.progress(pct, text=txt)
-
-        def _upd_nfse(i, total, name=None):
-            if total:
-                pct = int(i * 100 / total)
-                txt = f"NFS-e {i}/{total}"
-                if name:
-                    txt += f" — {name}"
-                prog_nfse.progress(pct, text=txt)
-
         # xml_reader.extrair_dados_xmls retorna df, arquivos_dict, itens_por_chave
-        df_nfe, arquivos_nfe, itens_por_chave = extrair_dados_xmls(files_copy_1, progress_callback=_upd_nfe)
-        df_nfse, arquivos_nfse = extrair_dados_nfses_xmls(files_copy_2, progress_callback=_upd_nfse)
+        df_nfe, arquivos_nfe, itens_por_chave = extrair_dados_xmls(files_copy_1)
+        df_nfse, arquivos_nfse = extrair_dados_nfses_xmls(files_copy_2)
 
         st.session_state.df_geral = pd.concat([df_nfe, df_nfse], ignore_index=True)  # Atualizando df_geral no session state
 
@@ -209,30 +180,11 @@ if uploaded_files:
 
     st.subheader("🧾 Tabela de Notas (Filtros + Seleção)")
 
-    # Filtro por campo selecionado (com opção "Todos")
+    # Filtro (universal) por texto — busca em todas as colunas
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        opcoes_campos_notas = [
-            "Todos",
-            "fornecedor",
-            "cnpj_emissor",
-            "chave",
-            "tipo_operacao",
-            "data_nota",
-            "complemento",
-            "debito",
-            "credito",
-            "historico",
-            "valor_total",
-        ]
-        filtro_campo_notas = st.selectbox(
-            "Campo para busca",
-            options=opcoes_campos_notas,
-            index=opcoes_campos_notas.index(st.session_state.get("filtro_campo_notas", "Todos")) if st.session_state.get("filtro_campo_notas") in opcoes_campos_notas else 0,
-            key="filtro_campo_notas",
-        )
-        filtro_texto = st.text_input("🔍 Buscar", value=st.session_state.get("filtro_texto", ""))
+        filtro_texto = st.text_input("🔍 Filtrar fornecedores contendo:", value=st.session_state.filtro_texto)
         st.session_state.filtro_texto = filtro_texto
     
     with col2:
@@ -241,25 +193,23 @@ if uploaded_files:
         selecionar_todos = st.checkbox("Selecionar todos os filtrados", value=st.session_state.selecionar_todos)
         st.session_state.selecionar_todos = selecionar_todos
 
-    # Aplicar filtro por campo ou todos
+    # Aplicar filtro por texto (universal: todas as colunas)
     if filtro_texto:
         base = st.session_state.df_geral.copy()
         texto = filtro_texto.strip().lower()
         try:
-            if filtro_campo_notas == "Todos":
-                mask = base.apply(
-                    lambda r: texto in " ".join(["" if pd.isna(v) else str(v).lower() for v in r.values]),
-                    axis=1,
-                )
-            else:
-                col = filtro_campo_notas
-                series = base[col].astype(str).str.lower() if col in base.columns else pd.Series([""] * len(base))
-                mask = series.str.contains(texto, na=False)
+            mask = base.apply(
+                lambda r: texto in " ".join(
+                    ["" if pd.isna(v) else str(v).lower() for v in r.values]
+                ),
+                axis=1,
+            )
             df_filtrado = base[mask].copy()
         except Exception:
+            # Fallback: se algo der errado no apply, não filtra
             df_filtrado = base.copy()
         if df_filtrado.empty:
-            st.warning(f"Nenhuma linha encontrada para '{filtro_texto}' em {filtro_campo_notas} — exibindo todas as notas.")
+            st.warning(f"Nenhuma linha encontrada contendo '{filtro_texto}' — exibindo todas as notas.")
             df_filtrado = base
         # Garante colunas exigidas pelo editor
         for col in ["debito", "credito", "historico"]:
@@ -272,120 +222,25 @@ if uploaded_files:
             if col not in df_filtrado.columns:
                 df_filtrado[col] = ""
     
-    # Adiciona coluna de seleção: preserva seleção anterior e respeita "Selecionar todos os filtrados"
-    selecionadas_set = set(st.session_state.selected_rows or [])
-    df_filtrado.insert(0, "Selecionar", df_filtrado["chave"].isin(selecionadas_set))
-    if st.session_state.selecionar_todos:
-        df_filtrado["Selecionar"] = True
+    # Adiciona coluna de seleção com valor do checkbox selecionar_todos para todas as linhas
+    df_filtrado.insert(0, "Selecionar", st.session_state.selecionar_todos)
 
-    # Lista de CFOPs: carrega do catálogo no banco; fallback para padrão local
-    DEFAULT_CFOPS_META = [
-        {"codigo":"1102","categoria":"Consumo","nome":"Dentro do Estado"},
-        {"codigo":"2102","categoria":"Consumo","nome":"Fora do Estado"},
-        {"codigo":"1556","categoria":"Revenda","nome":"Dentro do Estado"},
-        {"codigo":"2556","categoria":"Revenda","nome":"Fora do Estado"},
-        {"codigo":"1126","categoria":"Ativo Imobilizado","nome":"Dentro do Estado"},
-        {"codigo":"2126","categoria":"Ativo Imobilizado","nome":"Fora do Estado"},
-        {"codigo":"1551","categoria":"Serviço","nome":"Dentro do Estado"},
-        {"codigo":"2551","categoria":"Serviço","nome":"Fora do Estado"},
-        {"codigo":"1405","categoria":"Tributos","nome":"Estaduais e Municipais"},
-        {"codigo":"1403","categoria":"Revenda","nome":"Substituição tributária"},
-        {"codigo":"1910","categoria":"Bonificação/Brinde","nome":"Doação ou brinde"},
-        {"codigo":"2403","categoria":"Revenda","nome":"Para fora do Estado"},
-        {"codigo":"2910","categoria":"Bonificação/Brinde","nome":"Outros Estados"},
-        {"codigo":"5152","categoria":"Transferência","nome":"Dentro do Estado"},
-        {"codigo":"6152","categoria":"Transferência","nome":"Fora do Estado"},
-        {"codigo":"5910","categoria":"Bonificação/Brinde","nome":"Dentro do Estado"},
-        {"codigo":"6910","categoria":"Bonificação/Brinde","nome":"Fora do Estado"},
-        {"codigo":"5915","categoria":"Doação","nome":"Dentro do Estado"},
-        {"codigo":"6915","categoria":"Doação","nome":"Fora do Estado"},
-        {"codigo":"5920","categoria":"Demonstração","nome":"Dentro do Estado"},
-        {"codigo":"6920","categoria":"Demonstração","nome":"Fora do Estado"},
-        {"codigo":"5931","categoria":"Conserto","nome":"Remessa – Dentro do Estado"},
-        {"codigo":"6931","categoria":"Conserto","nome":"Remessa – Fora do Estado"},
-        {"codigo":"5932","categoria":"Conserto","nome":"Retorno – Dentro do Estado"},
-        {"codigo":"6932","categoria":"Conserto","nome":"Retorno – Fora do Estado"},
-        {"codigo":"5949","categoria":"Industrialização","nome":"Remessa – Dentro do Estado"},
-        {"codigo":"6949","categoria":"Industrialização","nome":"Remessa – Fora do Estado"},
-        {"codigo":"5951","categoria":"Industrialização","nome":"Retorno – Dentro do Estado"},
-        {"codigo":"6951","categoria":"Industrialização","nome":"Retorno – Fora do Estado"},
+    # Lista de códigos CFOP para seleção direta
+    CFOP_CODES = [
+        "1102",  # Consumo - Dentro do Estado
+        "2102",  # Consumo - Fora do Estado
+        "1556",  # Revenda - Dentro do Estado
+        "2556",  # Revenda - Fora do Estado
+        "1126",  # Ativo Imobilizado - Dentro do Estado
+        "2126",  # Ativo Imobilizado - Fora do Estado
+        "1551",  # Serviço - Dentro do Estado
+        "2551",  # Serviço - Fora do Estado
+        "1405",  # Tributos - Estaduais e Municipais
+        "1403",  # Revenda - Substituição tributária
+        "1910",  # Bonificação/Brinde - Doação ou brinde
+        "2403",  # Revenda - Para fora do Estado
+        "2910",  # Bonificação/Brinde - Outros Estados
     ]
-    DEFAULT_CFOPS = [d["codigo"] for d in DEFAULT_CFOPS_META]
-
-    def _seed_cfop_catalog_if_empty():
-        try:
-            rows = listar_cfops()
-            if not rows:
-                for d in DEFAULT_CFOPS_META:
-                    try:
-                        adicionar_ou_atualizar_cfop(d["codigo"], d.get("categoria"), d.get("nome"), d.get("descricao"))
-                    except Exception:
-                        pass
-        except Exception:
-            # Sem banco disponível; segue com fallback
-            pass
-    def _load_cfop_codes():
-        try:
-            # Faz seed inicial se estiver vazio
-            _seed_cfop_catalog_if_empty()
-            rows = listar_cfops()
-            if rows:
-                # Ordena por código numérico quando possível
-                codes = sorted({r.get("codigo") for r in rows if r.get("codigo")}, key=lambda x: (len(x), x))
-                return codes
-        except Exception as e:
-            pass
-        return DEFAULT_CFOPS
-    CFOP_CODES = _load_cfop_codes()
-
-    # Gestão do catálogo de CFOPs (opcional): cadastrar novos códigos
-    # Sidebar: gestão do catálogo de CFOPs (cadastrar/editar)
-    with st.sidebar.expander("📚 Catálogo de CFOPs", expanded=False):
-        try:
-            rows = listar_cfops()
-        except Exception:
-            rows = []
-
-        codigo_to_row = {r.get("codigo"): r for r in rows}
-        opcoes = [""] + [f"{r.get('codigo')} - {r.get('nome') or ''}" for r in rows]
-        selec = st.selectbox("Selecionar CFOP para editar", options=opcoes, key="cfop_edit_select")
-        selec_codigo = selec.split(" - ")[0] if selec else ""
-        dados = codigo_to_row.get(selec_codigo, {})
-
-        colg1, colg2 = st.columns([1,1])
-        with colg1:
-            form_codigo = st.text_input("Código", value=dados.get("codigo", ""), max_chars=10, key="cfop_form_codigo")
-            form_categoria = st.text_input("Categoria", value=dados.get("categoria", ""), max_chars=100, key="cfop_form_categoria")
-        with colg2:
-            form_nome = st.text_input("Nome", value=dados.get("nome", ""), max_chars=255, key="cfop_form_nome")
-            form_desc = st.text_input("Descrição", value=dados.get("descricao", ""), max_chars=255, key="cfop_form_desc")
-
-        colb1, colb2 = st.columns([1,1])
-        with colb1:
-            salvar_cfop_btn = st.button("Salvar CFOP", key="btn_salvar_cfop")
-        with colb2:
-            limpar_form_btn = st.button("Limpar", key="btn_limpar_cfop")
-
-        if limpar_form_btn:
-            for k in ["cfop_form_codigo", "cfop_form_categoria", "cfop_form_nome", "cfop_form_desc", "cfop_edit_select"]:
-                st.session_state.pop(k, None)
-            st.experimental_rerun() if hasattr(st, 'experimental_rerun') else rerun()
-
-        if salvar_cfop_btn:
-            try:
-                code_s = (form_codigo or "").strip()
-                cat_s = (form_categoria or "").strip() or None
-                name_s = (form_nome or "").strip() or None
-                desc_s = (form_desc or "").strip() or None
-                if not code_s:
-                    st.warning("Informe o código do CFOP.")
-                else:
-                    adicionar_ou_atualizar_cfop(code_s, cat_s, name_s, desc_s)
-                    st.success(f"CFOP '{code_s}' salvo com sucesso.")
-                    st.session_state["_last_cfop_added"] = code_s
-                    rerun()
-            except Exception as e:
-                st.error(f"Erro ao salvar CFOP: {e}")
 
     edited_df = st.data_editor(
         df_filtrado,
@@ -445,7 +300,6 @@ if uploaded_files:
 
     # Atualiza a lista de chaves selecionadas no session state
     st.session_state.selected_rows = selected_rows["chave"].tolist()
-    st.caption(f"{len(st.session_state.selected_rows)} nota(s) selecionada(s) de {len(df_filtrado)} exibidas")
 
     # Atualiza o dataframe original com as edições feitas pelo usuário
     for idx, row in edited_df.iterrows():
@@ -494,23 +348,12 @@ if uploaded_files:
                         "Aplicar a todos os itens desta nota",
                         key=f"{chave}_aplicar_todos"
                     )
-                if aplicar_todos_btn and cfop_para_todos and not st.session_state.apply_busy:
-                    st.session_state.apply_busy = True
-                    with st.spinner("Aplicando CFOP em todos os itens da nota, aguarde..."):
-                        changes = []
-                        count_local = 0
-                        for item in itens:
-                            nItem = str(item.get("nItem", ""))
-                            old = st.session_state.item_cfops.get(chave, {}).get(nItem)
-                            new = cfop_para_todos
-                            if chave not in st.session_state.item_cfops:
-                                st.session_state.item_cfops[chave] = {}
-                            st.session_state.item_cfops[chave][nItem] = new
-                            changes.append({"chave": chave, "nItem": nItem, "old": old, "new": new})
-                            count_local += 1
-                        if changes:
-                            st.session_state.item_cfops_undo.append(changes)
-                    st.session_state.apply_busy = False
+                if aplicar_todos_btn and cfop_para_todos:
+                    count_local = 0
+                    for item in itens:
+                        nItem = str(item.get("nItem", ""))
+                        st.session_state.item_cfops[chave][nItem] = cfop_para_todos
+                        count_local += 1
                     st.success(f"Aplicado CFOP '{cfop_para_todos}' em {count_local} item(ns) da nota {chave}")
                 for item in itens:
                     nItem = item.get("nItem", "")
@@ -559,27 +402,10 @@ if uploaded_files:
             import pandas as pd  # já importado; redundante, mas seguro
             df_itens = pd.DataFrame(itens_rows)
 
-            col_f0, col_f1, col_f2, col_f3 = st.columns([1, 2, 1, 1])
-            with col_f0:
-                usar_filtro_notas = st.checkbox("Usar filtro das notas", value=False, key="usar_filtro_notas")
+            col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
             with col_f1:
-                opcoes_campos_itens = [
-                    "Todos",
-                    "xProd",
-                    "fornecedor",
-                    "chave",
-                    "cfop_atual",
-                    "nItem",
-                    "vProd",
-                ]
-                filtro_campo_itens = st.selectbox(
-                    "Campo para busca (itens)",
-                    options=opcoes_campos_itens,
-                    index=opcoes_campos_itens.index(st.session_state.get("filtro_campo_itens", "Todos")) if st.session_state.get("filtro_campo_itens") in opcoes_campos_itens else 0,
-                    key="filtro_campo_itens",
-                )
-                filtro_itens_input = st.text_input(
-                    "Buscar nos itens",
+                filtro_itens = st.text_input(
+                    "Filtrar itens por texto (produto, fornecedor, chave, CFOP, item)",
                     value=st.session_state.get("filtro_itens", ""),
                     key="filtro_itens",
                     placeholder="Ex.: teclado; ACME; 1102; CHAVE..."
@@ -593,20 +419,13 @@ if uploaded_files:
 
             # Aplica filtro universal por texto em todas as colunas
             df_filtrado = df_itens.copy()
-            filtro_itens_val = (st.session_state.get("filtro_texto", "") if usar_filtro_notas else filtro_itens_input)
-            filtro_campo_aplicado = (st.session_state.get("filtro_campo_notas", "Todos") if usar_filtro_notas else filtro_campo_itens)
-            if filtro_itens_val:
-                texto = filtro_itens_val.strip().lower()
+            if filtro_itens:
+                texto = filtro_itens.strip().lower()
                 try:
-                    if filtro_campo_aplicado == "Todos":
-                        mask = df_itens.apply(
-                            lambda r: texto in " ".join([str(v).lower() for v in r.values if v is not None]),
-                            axis=1,
-                        )
-                    else:
-                        col = filtro_campo_aplicado
-                        series = df_itens[col].astype(str).str.lower() if col in df_itens.columns else pd.Series([""] * len(df_itens))
-                        mask = series.str.contains(texto, na=False)
+                    mask = df_itens.apply(
+                        lambda r: texto in " ".join([str(v).lower() for v in r.values if v is not None]),
+                        axis=1,
+                    )
                     df_filtrado = df_itens[mask].copy()
                 except Exception:
                     df_filtrado = df_itens.copy()
@@ -617,8 +436,6 @@ if uploaded_files:
             # Marcar todos os filtrados se solicitado
             if itens_select_all and not df_filtrado.empty:
                 df_filtrado["Selecionar"] = True
-
-            st.caption(f"{len(df_filtrado)} item(ns) no filtro atual")
 
             edited_items_df = st.data_editor(
                 df_filtrado,
@@ -642,141 +459,98 @@ if uploaded_files:
             with col_b1:
                 novo_cfop_itens = st.selectbox("CFOP para aplicar nos itens selecionados:", [""] + CFOP_CODES, index=0, key="novo_cfop_itens")
             with col_b2:
-                aplicar_cfop_itens_btn = st.button("Aplicar CFOP aos itens selecionados", disabled=st.session_state.apply_busy)
+                aplicar_cfop_itens_btn = st.button("Aplicar CFOP aos itens selecionados")
 
-            if aplicar_cfop_itens_btn and not st.session_state.apply_busy:
+            if aplicar_cfop_itens_btn:
                 # Seleciona os itens marcados; se 'selecionar todos' estiver ativo e nenhum marcado manualmente,
                 # aplica em todos os itens do conjunto filtrado atual
                 selected_items = edited_items_df[edited_items_df["Selecionar"] == True]
                 if itens_select_all and selected_items.empty:
                     selected_items = edited_items_df
                 if novo_cfop_itens:
-                    st.session_state.apply_busy = True
-                    with st.spinner("Aplicando CFOP nos itens selecionados, aguarde..."):
-                        changes = []
-                        count = 0
-                        for _, row_it in selected_items.iterrows():
-                            chave = row_it["chave"]
-                            nItem = str(row_it["nItem"])
-                            old = st.session_state.item_cfops.get(chave, {}).get(nItem)
-                            new = novo_cfop_itens
-                            if chave not in st.session_state.item_cfops:
-                                st.session_state.item_cfops[chave] = {}
-                            st.session_state.item_cfops[chave][nItem] = new
-                            changes.append({"chave": chave, "nItem": nItem, "old": old, "new": new})
-                            count += 1
-                        if changes:
-                            st.session_state.item_cfops_undo.append(changes)
-                    st.session_state.apply_busy = False
+                    count = 0
+                    for _, row_it in selected_items.iterrows():
+                        chave = row_it["chave"]
+                        nItem = str(row_it["nItem"])
+                        if chave not in st.session_state.item_cfops:
+                            st.session_state.item_cfops[chave] = {}
+                        st.session_state.item_cfops[chave][nItem] = novo_cfop_itens
+                        count += 1
                     st.success(f"CFOP '{novo_cfop_itens}' aplicado em {count} item(ns)")
                 else:
                     st.warning("Selecione um CFOP para aplicar em lote.")
+    # Alterar tipo de operação em massa
+    col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+    
+    with col1:
+        novo_tipo = st.selectbox("🚀 Tipo de operação para aplicar nos selecionados:", [
+            "1102",  # Consumo - Dentro do Estado
+            "2102",  # Consumo - Fora do Estado
+            "1556",  # Revenda - Dentro do Estado
+            "2556",  # Revenda - Fora do Estado
+            "1126",  # Ativo Imobilizado - Dentro do Estado
+            "2126",  # Ativo Imobilizado - Fora do Estado
+            "1551",  # Serviço - Dentro do Estado
+            "2551",  # Serviço - Fora do Estado
+            "1405",  # Tributos - Estaduais e Municipais
+            "1403",  # Revenda - Substituição tributária
+            "1910",  # Bonificação/Brinde - Doação ou brinde
+            "2403",  # Revenda - Para fora do Estado
+            "2910",  # Bonificação/Brinde - Outros Estados
+            "5152",  # Transferência - Dentro do Estado
+            "6152",  # Transferência - Fora do Estado
+            "5910",  # Bonificação / Brinde - Dentro do Estado
+            "6910",  # Bonificação / Brinde - Fora do Estado
+            "5915",  # Doação - Dentro do Estado
+            "6915",  # Doação - Fora do Estado
+            "5920",  # Demonstração - Dentro do Estado
+            "6920",  # Demonstração - Fora do Estado
+            "5931",  # Remessa para Conserto - Dentro do Estado
+            "6931",  # Remessa para Conserto - seFora do Estado
+            "5932",  # Retorno de Conserto - Dentro do Estado
+            "6932",  # Retorno de Conserto - Fora do Estado
+            "5949",  # Remessa para Industrialização - Dentro do Estado
+            "6949",  # Remessa para Industrialização - Fora do Estado
+            "5951",  # Retorno de Industrialização - Dentro do Estado
+            "6951",  # Retorno de Industrialização - Fora do Estado
+        ])
+    with col2:
+        novo_debito = st.text_input("Débito (13 dígitos)", max_chars=13)
+    with col3:
+        novo_credito = st.text_input("Crédito (13 dígitos)", max_chars=13)
+    with col4:
+        novo_historico = st.text_input("Histórico (9 dígitos)", max_chars=9)
+    with col5:
+        aplicar_btn = st.button("✅ Aplicar novo tipo e valores para selecionados", use_container_width=True)
 
-            st.divider()
-            # Desfazer última aplicação em lote
-            col_u1, col_u2 = st.columns([2, 1])
-            with col_u1:
-                undo_label = "↩️ Desfazer última aplicação" if st.session_state.item_cfops_undo else "↩️ Nada para desfazer"
-            with col_u2:
-                undo_btn = st.button(undo_label, disabled=not bool(st.session_state.item_cfops_undo))
-            if undo_btn:
-                changes = st.session_state.item_cfops_undo.pop()
-                restored = 0
-                for ch in changes:
-                    chave = ch["chave"]
-                    nItem = ch["nItem"]
-                    old = ch.get("old")
-                    if chave not in st.session_state.item_cfops:
-                        st.session_state.item_cfops[chave] = {}
-                    # Se old é None, removemos a entrada para voltar ao estado "sem seleção"
-                    if old is None:
-                        if nItem in st.session_state.item_cfops[chave]:
-                            del st.session_state.item_cfops[chave][nItem]
-                    else:
-                        st.session_state.item_cfops[chave][nItem] = old
-                    restored += 1
-                st.success(f"Desfeita a última aplicação em {restored} item(ns)")
-            # Aplicar CFOP a todos os itens de todas as notas selecionadas
-            col_all1, col_all2 = st.columns([2, 1])
-            with col_all1:
-                cfop_todos_itens_de_todas_notas = st.selectbox(
-                    "CFOP para TODOS os itens das notas selecionadas:",
-                    [""] + CFOP_CODES,
-                    index=0,
-                    key="cfop_todos_itens_de_todas_notas",
-                )
-            with col_all2:
-                aplicar_todos_itens_btn = st.button("Aplicar a todos os itens de todas as notas selecionadas", disabled=st.session_state.apply_busy)
-            if aplicar_todos_itens_btn and not st.session_state.apply_busy:
-                if cfop_todos_itens_de_todas_notas:
-                    st.session_state.apply_busy = True
-                    with st.spinner("Aplicando CFOP em todos os itens das notas selecionadas, aguarde..."):
-                        changes = []
-                        total = 0
-                        for _, nota in notas_selecionadas.iterrows():
-                            chave = nota["chave"]
-                            itens = st.session_state.itens_por_chave.get(chave, [])
-                            if chave not in st.session_state.item_cfops:
-                                st.session_state.item_cfops[chave] = {}
-                            for item in itens:
-                                nItem = str(item.get("nItem", ""))
-                                old = st.session_state.item_cfops.get(chave, {}).get(nItem)
-                                new = cfop_todos_itens_de_todas_notas
-                                st.session_state.item_cfops[chave][nItem] = new
-                                changes.append({"chave": chave, "nItem": nItem, "old": old, "new": new})
-                                total += 1
-                        if changes:
-                            st.session_state.item_cfops_undo.append(changes)
-                    st.session_state.apply_busy = False
-                    st.success(f"CFOP '{cfop_todos_itens_de_todas_notas}' aplicado em {total} item(ns) nas notas selecionadas")
-                else:
-                    st.warning("Selecione um CFOP para aplicar em todos os itens.")
-    # Preencher Débito/Crédito/Histórico em massa (sem alterar CFOP)
+    if aplicar_btn:
+        if st.session_state.df_geral is not None:
+            if not selected_rows.empty:
+                cfop_code = novo_tipo  # já é o código diretamente
+                # Guarda as chaves das linhas selecionadas
+                chaves_selecionadas = selected_rows["chave"].tolist()
+                
+                # Atualiza o dataframe no session state com o código CFOP
+                for chave in chaves_selecionadas:
+                    idxs = st.session_state.df_geral.index[st.session_state.df_geral["chave"] == chave].tolist()
+                    for idx in idxs:
+                        if cfop_code:
+                            st.session_state.df_geral.at[idx, "tipo_operacao"] = cfop_code
+                        if novo_debito:
+                            st.session_state.df_geral.at[idx, "debito"] = novo_debito
+                        if novo_credito:
+                            st.session_state.df_geral.at[idx, "credito"] = novo_credito
+                        if novo_historico:
+                            st.session_state.df_geral.at[idx, "historico"] = novo_historico
+                
+                st.success(f"Alterado tipo de operação e valores para {len(selected_rows)} notas selecionadas!")
+                
+                # Força rerun para atualizar a interface
+                rerun()
+            else:
+                st.warning("Nenhuma nota selecionada.")
+
     st.divider()
-    st.subheader("🧮 Preencher Débito/Crédito/Histórico em massa")
-    colm1, colm2 = st.columns([2, 1])
-    with colm1:
-        aplicar_em_filtradas = st.checkbox(
-            "Aplicar a todas as notas filtradas (ignora seleção)", value=False
-        )
-        st.caption(
-            f"Selecionadas: {len(st.session_state.selected_rows)} | Filtradas na tabela: {len(df_filtrado)}"
-        )
-    with colm2:
-        pass
-
-    colc1, colc2, colc3, colc4 = st.columns([1, 1, 1, 1])
-    with colc1:
-        novo_debito = st.text_input("Débito (13 dígitos)", max_chars=13, key="debito_mass")
-    with colc2:
-        novo_credito = st.text_input("Crédito (13 dígitos)", max_chars=13, key="credito_mass")
-    with colc3:
-        novo_historico = st.text_input("Histórico (9 dígitos)", max_chars=9, key="historico_mass")
-    with colc4:
-        aplicar_vals_btn = st.button("Aplicar nas notas alvo", use_container_width=True)
-
-    if aplicar_vals_btn:
-        # Determina as chaves alvo: todas filtradas ou apenas selecionadas
-        if aplicar_em_filtradas:
-            chaves_alvo = set(df_filtrado["chave"].tolist())
-        else:
-            chaves_alvo = set(st.session_state.selected_rows or [])
-
-        if not chaves_alvo:
-            st.warning("Nenhuma nota alvo. Selecione notas ou marque 'Aplicar a todas as notas filtradas'.")
-        else:
-            count = 0
-            for chave in chaves_alvo:
-                idxs = st.session_state.df_geral.index[st.session_state.df_geral["chave"] == chave].tolist()
-                for idx in idxs:
-                    if novo_debito:
-                        st.session_state.df_geral.at[idx, "debito"] = novo_debito
-                    if novo_credito:
-                        st.session_state.df_geral.at[idx, "credito"] = novo_credito
-                    if novo_historico:
-                        st.session_state.df_geral.at[idx, "historico"] = novo_historico
-                    count += 1
-            st.success(f"Valores aplicados em {count} linha(s) de nota (sem alterar CFOP)")
 
     # Salvar tipos no banco
     if st.button("💾 Salvar tipos no Banco"):

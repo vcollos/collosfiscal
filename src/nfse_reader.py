@@ -2,11 +2,12 @@ from lxml import etree
 import pandas as pd
 import io
 
-def extrair_dados_nfses_xmls(arquivos_xml):
+def extrair_dados_nfses_xmls(arquivos_xml, progress_callback=None):
     registros = []
     arquivos_dict = {}
 
-    for file in arquivos_xml:
+    total = len(arquivos_xml)
+    for idx, file in enumerate(arquivos_xml, start=1):
         try:
             tree = etree.parse(file)
             root = tree.getroot()
@@ -44,8 +45,19 @@ def extrair_dados_nfses_xmls(arquivos_xml):
                 "complemento": complemento
             })
 
+            if callable(progress_callback):
+                try:
+                    progress_callback(idx, total, getattr(file, 'name', None))
+                except Exception:
+                    pass
+
         except Exception as e:
             print(f"Erro ao processar {file.name}: {e}")
+            if callable(progress_callback):
+                try:
+                    progress_callback(idx, total, getattr(file, 'name', None))
+                except Exception:
+                    pass
             continue
 
     df = pd.DataFrame(registros)

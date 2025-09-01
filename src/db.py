@@ -88,6 +88,18 @@ preferencias_fornecedor_empresa = Table(
     extend_existing=True
 )
 
+# Catálogo de CFOPs (código, categoria e nome/descrição curta)
+cfop_catalog = Table(
+    "cfop_catalog",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("codigo", String(10), nullable=False, unique=True),
+    Column("categoria", String(100)),
+    Column("nome", String(255)),
+    Column("descricao", String(255)),
+    extend_existing=True,
+)
+
 try:
     if engine is not None:
         metadata.create_all(engine)
@@ -204,5 +216,31 @@ def salvar_preferencia_empresa_fornecedor(empresa_id, cnpj_fornecedor, tipo_oper
                 data_nota=data_nota,
                 complemento=complemento
             )
+        conn.execute(stmt)
+        conn.commit()
+
+# 📚 Catálogo de CFOPs
+def listar_cfops():
+    """Retorna lista de dicionários com os CFOPs cadastrados."""
+    eng = _ensure_engine()
+    with eng.connect() as conn:
+        rows = conn.execute(select(cfop_catalog)).fetchall()
+        return [dict(r._mapping) for r in rows]
+
+def adicionar_ou_atualizar_cfop(codigo, categoria=None, nome=None, descricao=None):
+    """Adiciona um CFOP ao catálogo ou atualiza seus campos se já existir."""
+    if not codigo:
+        raise ValueError("Código CFOP é obrigatório")
+    eng = _ensure_engine()
+    with eng.connect() as conn:
+        existente = conn.execute(select(cfop_catalog).where(cfop_catalog.c.codigo == codigo)).fetchone()
+        if existente:
+            stmt = (
+                update(cfop_catalog)
+                .where(cfop_catalog.c.codigo == codigo)
+                .values(categoria=categoria, nome=nome, descricao=descricao)
+            )
+        else:
+            stmt = insert(cfop_catalog).values(codigo=codigo, categoria=categoria, nome=nome, descricao=descricao)
         conn.execute(stmt)
         conn.commit()

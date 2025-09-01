@@ -4,7 +4,7 @@ import io
 
 NFE_NAMESPACE = "http://www.portalfiscal.inf.br/nfe"
 
-def extrair_dados_xmls(arquivos_xml):
+def extrair_dados_xmls(arquivos_xml, progress_callback=None):
     """
     Extrai dados principais das NF-e e também os itens de cada nota.
 
@@ -17,7 +17,8 @@ def extrair_dados_xmls(arquivos_xml):
     arquivos_dict = {}
     itens_por_chave = {}
 
-    for file in arquivos_xml:
+    total = len(arquivos_xml)
+    for idx, file in enumerate(arquivos_xml, start=1):
         try:
             # Parse do arquivo
             tree = etree.parse(file)
@@ -96,8 +97,20 @@ def extrair_dados_xmls(arquivos_xml):
                 "nNF": numero_nota
             })
 
+            # Atualiza progresso, se callback fornecido
+            if callable(progress_callback):
+                try:
+                    progress_callback(idx, total, getattr(file, 'name', None))
+                except Exception:
+                    pass
+
         except Exception as e:
             print(f"Erro ao processar {getattr(file, 'name', str(file))}: {e}")
+            if callable(progress_callback):
+                try:
+                    progress_callback(idx, total, getattr(file, 'name', None))
+                except Exception:
+                    pass
             continue
 
     df = pd.DataFrame(registros)
