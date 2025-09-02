@@ -7,9 +7,7 @@ from lxml import etree
 
 from src.xml_reader import extrair_dados_xmls
 from src.nfse_reader import extrair_dados_nfses_xmls
-from src.xml_editor import alterar_cfops_e_gerar_zip
-from src.nfse_editor import alterar_natureza_e_gerar_zip
-from src.utils import CFOP_MAP
+# (Removidos imports não utilizados)
 from src.db import (
     interpretar_cfop_decomposto,
     buscar_tipo_operacao_emissor,
