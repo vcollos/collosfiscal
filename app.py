@@ -182,29 +182,30 @@ if uploaded_files:
             if col not in st.session_state.df_geral.columns:
                 st.session_state.df_geral[col] = ""
 
-        # Aplica preferências salvas no banco para a empresa selecionada
-        empresa_id = st.session_state.empresa_selecionada
-        for cnpj in st.session_state.df_geral["cnpj_emissor"].unique():
-            pref = buscar_preferencia_empresa_fornecedor(empresa_id, cnpj)
-            if pref:
-                idxs = st.session_state.df_geral.index[st.session_state.df_geral["cnpj_emissor"] == cnpj].tolist()
-                for idx in idxs:
-                    if "tipo_operacao" in pref and pref["tipo_operacao"]:
-                        st.session_state.df_geral.at[idx, "tipo_operacao"] = pref["tipo_operacao"]
-                    if "data_nota" in pref and pref["data_nota"]:
-                        st.session_state.df_geral.at[idx, "data_nota"] = pref["data_nota"]
-                    if "complemento" in pref and pref["complemento"]:
-                        st.session_state.df_geral.at[idx, "complemento"] = pref["complemento"]
-                    if "debito" in pref and pref["debito"]:
-                        st.session_state.df_geral.at[idx, "debito"] = pref["debito"]
-                    if "credito" in pref and pref["credito"]:
-                        st.session_state.df_geral.at[idx, "credito"] = pref["credito"]
-                    if "historico" in pref and pref["historico"]:
-                        st.session_state.df_geral.at[idx, "historico"] = pref["historico"]
-
         if st.session_state.df_geral.empty:
             st.error("Nenhuma nota válida encontrada.")
             st.stop()
+
+        # Aplica preferências salvas no banco para a empresa selecionada
+        empresa_id = st.session_state.empresa_selecionada
+        if "cnpj_emissor" in st.session_state.df_geral.columns:
+            for cnpj in st.session_state.df_geral["cnpj_emissor"].unique():
+                pref = buscar_preferencia_empresa_fornecedor(empresa_id, cnpj)
+                if pref:
+                    idxs = st.session_state.df_geral.index[st.session_state.df_geral["cnpj_emissor"] == cnpj].tolist()
+                    for idx in idxs:
+                        if "tipo_operacao" in pref and pref["tipo_operacao"]:
+                            st.session_state.df_geral.at[idx, "tipo_operacao"] = pref["tipo_operacao"]
+                        if "data_nota" in pref and pref["data_nota"]:
+                            st.session_state.df_geral.at[idx, "data_nota"] = pref["data_nota"]
+                        if "complemento" in pref and pref["complemento"]:
+                            st.session_state.df_geral.at[idx, "complemento"] = pref["complemento"]
+                        if "debito" in pref and pref["debito"]:
+                            st.session_state.df_geral.at[idx, "debito"] = pref["debito"]
+                        if "credito" in pref and pref["credito"]:
+                            st.session_state.df_geral.at[idx, "credito"] = pref["credito"]
+                        if "historico" in pref and pref["historico"]:
+                            st.session_state.df_geral.at[idx, "historico"] = pref["historico"]
 
     st.subheader("🧾 Tabela de Notas (Filtros + Seleção)")
 
