@@ -47,16 +47,17 @@ if "apply_busy" not in st.session_state:
 
 # Função para cadastrar empresa
 def cadastrar_empresa(cnpj, razao_social, nome_fantasia):
-    from src.db import engine, Table, MetaData, insert
-    metadata = MetaData()
+    from sqlalchemy.exc import IntegrityError
+    from src.db import engine, empresas, insert
     try:
-        metadata.reflect(bind=engine)
-        empresas_table = Table('empresas', metadata, autoload_with=engine)
         with engine.connect() as conn:
-            stmt = insert(empresas_table).values(cnpj=cnpj, nome=nome_fantasia, razao_social=razao_social)
+            stmt = insert(empresas).values(cnpj=cnpj, nome=nome_fantasia, razao_social=razao_social)
             conn.execute(stmt)
             conn.commit()
         return True
+    except IntegrityError:
+        st.error(f"CNPJ {cnpj} já está cadastrado. Selecione a empresa na lista.")
+        return False
     except Exception as e:
         st.error("Não foi possível cadastrar empresa: banco indisponível ou credenciais faltando. Detalhe: " + str(e))
         return False
